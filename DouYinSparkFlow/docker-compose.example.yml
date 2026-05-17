@@ -1,0 +1,56 @@
+services:
+  proxy:
+    image: metacubex/mihomo:latest
+    container_name: mihomo
+    restart: unless-stopped
+    ports:
+      - "7890:7890"
+      - "9090:9090"
+    volumes:
+      - ./proxy/config.yaml:/root/.config/mihomo/config.yaml
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+      network: host
+      args:
+        HTTP_PROXY: http://127.0.0.1:7890
+        HTTPS_PROXY: http://127.0.0.1:7890
+        ALL_PROXY: socks5://127.0.0.1:7890
+    image: douyin-sparkflow:local
+    container_name: douyin-web
+    restart: unless-stopped
+    depends_on:
+      - proxy
+    environment:
+      TZ: Asia/Shanghai
+      HTTP_PROXY: http://proxy:7890
+      HTTPS_PROXY: http://proxy:7890
+      ALL_PROXY: socks5://proxy:7890
+      NO_PROXY: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
+    ports:
+      - "8787:8787"
+    command: python main.py --web --host 0.0.0.0 --port 8787
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/spool/cron/root:/var/spool/cron/crontabs/root
+
+  task:
+    image: douyin-sparkflow:local
+    container_name: douyin-task
+    depends_on:
+      - proxy
+    environment:
+      TZ: Asia/Shanghai
+      HTTP_PROXY: http://proxy:7890
+      HTTPS_PROXY: http://proxy:7890
+      ALL_PROXY: socks5://proxy:7890
+      NO_PROXY: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
+    command: python main.py --doTask
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    restart: "no"

@@ -1,0 +1,646 @@
+import json
+import logging
+import traceback
+from datetime import datetime
+from pathlib import Path
+import urllib.error
+import urllib.request
+
+import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+
+logger = logging.getLogger(__name__)
+
+from core.friends import fetch_account_friends
+from utils.config import (
+    get_app_settings,
+    get_config,
+    get_userData,
+    normalize_unique_id,
+    save_app_settings,
+    save_config,
+    save_userData,
+    upsert_user_account,
+)
+from webui.auth import (
+    bootstrap_admin_password,
+    clear_session,
+    csrf_token,
+    current_user,
+    is_bootstrapped,
+    is_https_request,
+    issue_session,
+    update_admin_password,
+    validate_csrf,
+    verify_password,
+)
+from webui.ops import get_ops_snapshot, read_log_tail, refresh_proxy, restart_proxy, run_task_now, update_daily_schedule
+
+
+BASE_DIR = Path(__file__).resolve().parent
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
+DEBUG_ARTIFACTS_DIR = BASE_DIR.parent / "logs" / "debug_artifacts"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+
+
+def _dedupe_targets(values):
+    seen = set()
+    result = []
+    for value in values:
+        normalized = str(value).strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return result
+
+
+def _split_target_entries(values):
+    expanded = []
+    for value in values:
+        raw = str(value).replace(",", "\n")
+        expanded.extend(raw.splitlines())
+    return _dedupe_targets(expanded)
+
+
+def extract_targets_from_form(form):
+    if hasattr(form, "getlist"):
+        checkbox_targets = _split_target_entries(form.getlist("targets"))
+        if checkbox_targets:
+            return checkbox_targets
+    raw_targets = str(form.get("targets", ""))
+    return _split_target_entries([raw_targets])
+
+
+def find_account(accounts, unique_id):
+    normalized = normalize_unique_id(unique_id)
+    for account in accounts:
+        if normalize_unique_id(account.get("unique_id")) == normalized:
+            return account
+    return None
+
+
+def is_account_enabled(account):
+    return bool(account.get("enabled", True))
+
+
+def coerce_int(value, default, minimum=0):
+    try:
+        return max(minimum, int(str(value).strip()))
+    except (TypeError, ValueError):
+        return max(minimum, int(default))
+
+
+def login_desktop_api_url():
+    settings = get_app_settings(force_reload=True)
+    return str(settings.get("login_desktop_api_url") or "http://127.0.0.1:18090").rstrip("/")
+
+
+def login_desktop_public_url(request: Request) -> str:
+    host = request.url.hostname or "127.0.0.1"
+    scheme = request.url.scheme or "http"
+    return f"{scheme}://{host}:8788/vnc.html?autoconnect=1&resize=scale&view_only=0"
+
+
+def call_login_desktop(path: str, *, method: str = "GET", payload: dict | None = None, timeout: int = 20) -> dict:
+    url = f"{login_desktop_api_url()}{path}"
+    data = None
+    headers = {}
+    if payload is not None:
+        data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers["Content-Type"] = "application/json; charset=utf-8"
+    request = urllib.request.Request(url, method=method, data=data, headers=headers)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8", errors="replace")
+            return json.loads(body) if body.strip() else {}
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"login-desktop API error {exc.code}: {body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"login-desktop unavailable: {exc.reason}") from exc
+
+
+def save_exported_login_result(login_result: dict, *, relogin_unique_id: str = "", display_name: str = "") -> tuple[dict, str]:
+    unique_id = normalize_unique_id(login_result.get("unique_id"))
+    username = str(display_name or login_result.get("username") or "").strip()
+    cookies = list(login_result.get("cookies") or [])
+    if not unique_id or not username or not cookies:
+        raise RuntimeError("Exported login result is incomplete")
+
+    accounts = get_userData(force_reload=True)
+
+    if relogin_unique_id:
+        target = find_account(accounts, relogin_unique_id)
+        if not target:
+            raise RuntimeError("Target account not found for relogin")
+        target["unique_id"] = unique_id
+        target["username"] = username
+        target["cookies"] = cookies
+        target.setdefault("enabled", True)
+        save_userData(accounts)
+        return target, "updated"
+
+    existing = find_account(accounts, unique_id)
+    if existing:
+        existing["username"] = username
+        existing["cookies"] = cookies
+        existing.setdefault("enabled", True)
+        save_userData(accounts)
+        return existing, "updated"
+
+    account = upsert_user_account(unique_id, username, cookies, [])
+    return account, "created"
+
+
+def create_app():
+    settings = get_app_settings()
+    app = FastAPI(title="DouYin Spark Flow Admin")
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=settings["session_secret"],
+        max_age=settings["session_max_age_seconds"],
+        same_site="lax",
+        https_only=False,
+    )
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    DEBUG_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    app.mount("/debug-artifacts", StaticFiles(directory=str(DEBUG_ARTIFACTS_DIR)), name="debug-artifacts")
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        tb = traceback.format_exception(type(exc), exc, exc.__traceback__)
+        tb_text = "".join(tb)
+        logger.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb_text)
+        return PlainTextResponse(f"Internal Server Error\n\n{tb_text}", status_code=500)
+
+    def render_template(request, template_name, context=None, status_code=200):
+        base_context = context or {}
+        base_context.update(
+            {
+                "request": request,
+                "current_user": current_user(request),
+                "csrf_token": csrf_token(request) if current_user(request) else "",
+                "is_https": is_https_request(request),
+                "app_settings": get_app_settings(force_reload=True),
+                "login_desktop_public_url": login_desktop_public_url(request),
+            }
+        )
+        return templates.TemplateResponse(request, template_name, base_context, status_code=status_code)
+
+    def redirect(path="/", status_code=303):
+        return RedirectResponse(url=path, status_code=status_code)
+
+    def require_user(request):
+        if not current_user(request):
+            return redirect("/login")
+        return None
+
+    def flash(request, message, level="info"):
+        request.session["flash"] = {"message": message, "level": level}
+
+    def pop_flash(request):
+        return request.session.pop("flash", None)
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_page(request: Request):
+        if current_user(request):
+            return redirect("/")
+        return render_template(
+            request,
+            "login.html",
+            {
+                "flash": pop_flash(request),
+                "bootstrapped": is_bootstrapped(),
+            },
+        )
+
+    @app.post("/bootstrap")
+    async def bootstrap(request: Request):
+        if is_bootstrapped():
+            flash(request, "Admin login is already configured.", "warning")
+            return redirect("/login")
+
+        form = await request.form()
+        username = str(form.get("username", "admin")).strip() or "admin"
+        password = str(form.get("password", ""))
+        confirm = str(form.get("confirm_password", ""))
+        if not password or password != confirm:
+            flash(request, "Password setup failed. Please enter matching passwords.", "error")
+            return redirect("/login")
+
+        bootstrap_admin_password(password, username=username)
+        flash(request, "Admin credentials created. Please log in.", "success")
+        return redirect("/login")
+
+    @app.post("/login")
+    async def login_action(request: Request):
+        if not is_bootstrapped():
+            flash(request, "Create the admin password first.", "warning")
+            return redirect("/login")
+
+        form = await request.form()
+        username = str(form.get("username", "")).strip()
+        password = str(form.get("password", ""))
+        settings = get_app_settings(force_reload=True)
+        if username != settings["admin_username"] or not verify_password(password, settings["admin_password_hash"]):
+            flash(request, "Invalid username or password.", "error")
+            return redirect("/login")
+
+        issue_session(request, username)
+        flash(request, "Signed in successfully.", "success")
+        return redirect("/")
+
+    @app.post("/logout")
+    async def logout_action(request: Request):
+        clear_session(request)
+        return redirect("/login")
+
+    @app.get("/", response_class=HTMLResponse)
+    async def dashboard(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        return render_template(
+            request,
+            "dashboard.html",
+            {
+                "flash": pop_flash(request),
+                "accounts": get_userData(force_reload=True),
+                "runtime_config": get_config(force_reload=True),
+                "ops": get_ops_snapshot(),
+            },
+        )
+
+    @app.post("/accounts/{unique_id}/update")
+    async def update_account(request: Request, unique_id: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        username = str(form.get("username", "")).strip()
+        targets = extract_targets_from_form(form)
+
+        accounts = get_userData(force_reload=True)
+        account = find_account(accounts, unique_id)
+        if account:
+            account["username"] = username or account.get("username", "")
+            account["targets"] = targets
+            account["enabled"] = str(form.get("enabled", "")) == "on"
+            save_userData(accounts)
+            flash(request, f"Updated account {account['username']}.", "success")
+        else:
+            flash(request, "Account not found.", "error")
+
+        return redirect("/")
+
+    @app.post("/accounts/{unique_id}/toggle-enabled")
+    async def toggle_account_enabled(request: Request, unique_id: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        accounts = get_userData(force_reload=True)
+        account = find_account(accounts, unique_id)
+        if not account:
+            flash(request, "Account not found.", "error")
+            return redirect("/")
+
+        account["enabled"] = not is_account_enabled(account)
+        save_userData(accounts)
+        flash(
+            request,
+            f"{account.get('username', 'Account')} 已{'启用' if account['enabled'] else '停用'}自动续火花。",
+            "success",
+        )
+        return redirect("/")
+
+    @app.post("/accounts/{unique_id}/friends/refresh")
+    async def refresh_account_friend_list(request: Request, unique_id: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return JSONResponse({"error": "Invalid CSRF token"}, status_code=403)
+
+        accounts = get_userData(force_reload=True)
+        account = find_account(accounts, unique_id)
+        if not account:
+            return JSONResponse({"error": "Account not found."}, status_code=404)
+
+        try:
+            friends = await fetch_account_friends(account)
+            account["friends_cache"] = friends
+            account["friends_cache_updated_at"] = datetime.now().isoformat(timespec="seconds")
+            save_userData(accounts)
+            return JSONResponse(
+                {
+                    "friends": friends,
+                    "updated_at": account["friends_cache_updated_at"],
+                    "message": f"已刷新 {len(friends)} 个好友",
+                }
+            )
+        except RuntimeError as exc:
+            return JSONResponse({"error": str(exc)}, status_code=400)
+
+    @app.post("/accounts/{unique_id}/delete")
+    async def delete_account(request: Request, unique_id: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        accounts = get_userData(force_reload=True)
+        updated_accounts = [item for item in accounts if normalize_unique_id(item.get("unique_id")) != normalize_unique_id(unique_id)]
+        if len(updated_accounts) != len(accounts):
+            save_userData(updated_accounts)
+            flash(request, "Account deleted.", "success")
+        else:
+            flash(request, "Account not found.", "error")
+        return redirect("/")
+
+    @app.post("/config")
+    async def save_runtime_config(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        config = get_config(force_reload=True)
+        if "messageTemplate" in form:
+            config["messageTemplate"] = str(form.get("messageTemplate", config.get("messageTemplate", "")))
+        if "multiTask" in form:
+            config["multiTask"] = str(form.get("multiTask", "")) == "on"
+        if "taskCount" in form:
+            config["taskCount"] = coerce_int(form.get("taskCount", config.get("taskCount", 1)), config.get("taskCount", 1), 1)
+        if "hitokotoTypes" in form:
+            raw_types = str(form.get("hitokotoTypes", ""))
+            config["hitokotoTypes"] = [item.strip() for item in raw_types.replace(",", "\n").splitlines() if item.strip()]
+
+        send_strategy = config.get("sendStrategy", {}) or {}
+        if "shuffleTargets" in form:
+            send_strategy["shuffleTargets"] = str(form.get("shuffleTargets", "")) == "on"
+        if "accountStartDelaySecondsMin" in form:
+            send_strategy["accountStartDelaySecondsMin"] = coerce_int(
+                form.get("accountStartDelaySecondsMin", send_strategy.get("accountStartDelaySecondsMin", 0)),
+                send_strategy.get("accountStartDelaySecondsMin", 0),
+                0,
+            )
+        if "accountStartDelaySecondsMax" in form:
+            send_strategy["accountStartDelaySecondsMax"] = coerce_int(
+                form.get("accountStartDelaySecondsMax", send_strategy.get("accountStartDelaySecondsMax", 0)),
+                send_strategy.get("accountStartDelaySecondsMax", 0),
+                send_strategy.get("accountStartDelaySecondsMin", 0),
+            )
+        if "messageIntervalSecondsMin" in form:
+            send_strategy["messageIntervalSecondsMin"] = coerce_int(
+                form.get("messageIntervalSecondsMin", send_strategy.get("messageIntervalSecondsMin", 0)),
+                send_strategy.get("messageIntervalSecondsMin", 0),
+                0,
+            )
+        if "messageIntervalSecondsMax" in form:
+            send_strategy["messageIntervalSecondsMax"] = coerce_int(
+                form.get("messageIntervalSecondsMax", send_strategy.get("messageIntervalSecondsMax", 0)),
+                send_strategy.get("messageIntervalSecondsMax", 0),
+                send_strategy.get("messageIntervalSecondsMin", 0),
+            )
+        if "messageVariants" in form:
+            raw_variants = str(form.get("messageVariants", ""))
+            send_strategy["messageVariants"] = [
+                item.strip() for item in raw_variants.replace("\r", "\n").split("\n") if item.strip()
+            ]
+        config["sendStrategy"] = send_strategy
+
+        happy_new_year = config.get("happyNewYear", {})
+        if "happyNewYearEnabled" in form:
+            happy_new_year["enabled"] = str(form.get("happyNewYearEnabled", "")) == "on"
+        if "happyNewYearTemplate" in form:
+            happy_new_year["messageTemplate"] = str(form.get("happyNewYearTemplate", happy_new_year.get("messageTemplate", "")))
+        config["happyNewYear"] = happy_new_year
+        save_config(config)
+
+        flash(request, "Runtime config saved.", "success")
+        return redirect("/")
+
+    @app.post("/settings")
+    async def save_panel_settings(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        settings = get_app_settings(force_reload=True)
+        settings["server_host"] = str(form.get("server_host", "")).strip()
+        settings["server_username"] = str(form.get("server_username", "")).strip()
+        settings["server_password"] = str(form.get("server_password", "")).strip()
+        settings["compose_root"] = str(form.get("compose_root", settings.get("compose_root", ""))).strip()
+        settings["ops_log_file"] = str(form.get("ops_log_file", settings.get("ops_log_file", ""))).strip()
+        settings["proxy_refresh_script"] = str(form.get("proxy_refresh_script", settings.get("proxy_refresh_script", ""))).strip()
+        settings["local_login_helper_url"] = str(
+            form.get("local_login_helper_url", settings.get("local_login_helper_url", "http://127.0.0.1:18765"))
+        ).strip()
+        settings["login_desktop_api_url"] = str(
+            form.get("login_desktop_api_url", settings.get("login_desktop_api_url", "http://127.0.0.1:18090"))
+        ).strip()
+        settings["ui_port"] = int(form.get("ui_port", settings.get("ui_port", 8787)))
+        save_app_settings(settings)
+
+        new_password = str(form.get("new_password", ""))
+        confirm_password = str(form.get("confirm_password", ""))
+        if new_password:
+            if new_password != confirm_password:
+                flash(request, "Admin password was not updated because the confirmation did not match.", "error")
+                return redirect("/")
+            update_admin_password(new_password)
+
+        flash(request, "Panel settings saved.", "success")
+        return redirect("/")
+
+    @app.post("/ops/run-now")
+    async def run_now(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        pid = run_task_now()
+        if pid == -1:
+            flash(request, "Task launch failed. Check console logs for Missing Docker or protected log_file path.", "error")
+        else:
+            flash(request, f"Triggered a background task run (pid {pid}).", "success")
+        return redirect("/")
+
+    @app.post("/ops/proxy/refresh")
+    async def proxy_refresh(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        refresh_proxy()
+        flash(request, "Proxy subscription refreshed.", "success")
+        return redirect("/")
+
+    @app.post("/ops/proxy/restart")
+    async def proxy_restart(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        restart_proxy()
+        flash(request, "Proxy container restarted.", "success")
+        return redirect("/")
+
+    @app.post("/ops/schedule")
+    async def save_schedule(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        time_string = str(form.get("daily_schedule", "")).strip()
+        result = update_daily_schedule(time_string)
+        if getattr(result, "returncode", 1) == 0:
+            flash(request, f"Updated the daily schedule to {time_string}.", "success")
+        else:
+            flash(request, f"Failed to update the daily schedule to {time_string}: {getattr(result, 'stderr', '')}", "error")
+        return redirect("/")
+
+    @app.get("/ops/logs", response_class=HTMLResponse)
+    async def logs_page(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+        return render_template(
+            request,
+            "logs.html",
+            {
+                "flash": pop_flash(request),
+                "log_tail": read_log_tail(400),
+            },
+        )
+
+    @app.get("/login-desktop/status")
+    async def login_desktop_status(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return JSONResponse({"redirect": "/login"}, status_code=401)
+        try:
+            payload = call_login_desktop("/status")
+            payload["public_url"] = login_desktop_public_url(request)
+            return JSONResponse(payload)
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc), "public_url": login_desktop_public_url(request)}, status_code=503)
+
+    @app.post("/login-desktop/open")
+    async def login_desktop_open(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return JSONResponse({"redirect": "/login"}, status_code=401)
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return JSONResponse({"ok": False, "error": "Invalid CSRF token"}, status_code=403)
+        try:
+            call_login_desktop("/open-login", method="POST", payload={})
+            return JSONResponse({"ok": True, "public_url": login_desktop_public_url(request)})
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+
+    @app.post("/login-desktop/reset")
+    async def login_desktop_reset(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return JSONResponse({"redirect": "/login"}, status_code=401)
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return JSONResponse({"ok": False, "error": "Invalid CSRF token"}, status_code=403)
+        try:
+            payload = call_login_desktop("/reset", method="POST", payload={}, timeout=120)
+            return JSONResponse({"ok": True, "result": payload})
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+
+    @app.post("/login-desktop/save")
+    async def login_desktop_save(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return JSONResponse({"redirect": "/login"}, status_code=401)
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return JSONResponse({"ok": False, "error": "Invalid CSRF token"}, status_code=403)
+
+        relogin_unique_id = str(form.get("relogin_unique_id", "")).strip()
+        display_name = str(form.get("display_name", "")).strip()
+        try:
+            payload = call_login_desktop("/export", method="POST", payload={}, timeout=30)
+            if not payload.get("ok"):
+                raise RuntimeError("login-desktop export did not return ok")
+            account, action = save_exported_login_result(
+                payload.get("result", {}),
+                relogin_unique_id=relogin_unique_id,
+                display_name=display_name,
+            )
+            return JSONResponse({
+                "ok": True,
+                "action": action,
+                "account": {
+                    "unique_id": account.get("unique_id"),
+                    "username": account.get("username"),
+                    "enabled": account.get("enabled", True),
+                },
+            })
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+
+    return app
+
+
+app = create_app()
+
+
+def run_web_app(host=None, port=None):
+    settings = get_app_settings(force_reload=True)
+    uvicorn.run(
+        "webui.app:app",
+        host=host or settings["ui_host"],
+        port=port or settings["ui_port"],
+        reload=False,
+    )

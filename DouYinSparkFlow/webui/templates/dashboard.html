@@ -1,0 +1,731 @@
+{% extends "base.html" %}
+
+{% block title %}抖音多账号续火花控制台{% endblock %}
+{% block page_title %}抖音多账号续火花控制台{% endblock %}
+
+{% block content %}
+{% set enabled_accounts = accounts | selectattr("enabled", "equalto", true) | list %}
+{% set proxy_rows = ops.containers | selectattr("Names", "equalto", "mihomo") | list %}
+<div class="layout-grid">
+  <div class="stack">
+    <section class="panel">
+      <div class="stats-grid">
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">账号总数</span>
+            <span class="muted compact">已启用 {{ enabled_accounts|length }} / 总数 {{ accounts|length }}</span>
+            <strong class="stat-value">{{ accounts|length }}</strong>
+          </div>
+          <div class="stat-icon blue">👥</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">今日发送计划时间</span>
+            <span class="muted compact">下一次执行：{{ ops.daily_schedule or "未配置" }}</span>
+            <strong class="stat-subvalue">{{ ops.daily_schedule or "未配置" }}</strong>
+          </div>
+          <div class="stat-icon green">🕒</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">代理容器状态</span>
+            <span class="muted compact">容器在线 / 离线</span>
+            <div class="status-line">
+              <span class="pill {% if proxy_rows %}soft{% else %}warning{% endif %}">{{ proxy_rows|length }} / {{ ops.containers|length }}</span>
+              <span class="pill {% if ops.image_present %}soft{% else %}warning{% endif %}">
+                {% if ops.image_present %}镜像已构建{% else %}镜像待构建{% endif %}
+              </span>
+            </div>
+          </div>
+          <div class="stat-icon soft">▣</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">交互式登录桌面</span>
+            <span class="muted compact"><a href="{{ login_desktop_public_url }}" target="_blank" rel="noreferrer">{{ login_desktop_public_url }}</a></span>
+            <strong class="stat-subvalue">noVNC 直连</strong>
+          </div>
+          <div class="stat-icon blue">🖥</div>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel" id="interactive-login-section">
+      <div class="section-title-row">
+        <div>
+          <h2>交互式登录浏览器（推荐）</h2>
+          <p class="muted compact">在网页里直接操作服务器浏览器完成扫码、短信验证和登录，不再依赖远程截图轮询。</p>
+        </div>
+      </div>
+
+      <div class="login-stepbar">
+        <div class="step-item active"><span class="step-index">1</span><span>打开浏览器</span></div>
+        <div class="step-connector"></div>
+        <div class="step-item active"><span class="step-index">2</span><span>扫码与验证</span></div>
+        <div class="step-connector"></div>
+        <div class="step-item active"><span class="step-index">3</span><span>进入创作者中心</span></div>
+        <div class="step-connector"></div>
+        <div class="step-item active"><span class="step-index">4</span><span>保存登录账号</span></div>
+      </div>
+
+      <div class="login-grid">
+        <div class="login-box warning">
+          <div class="stack-form">
+            <div class="status-line">
+              <span class="pill soft">方式：交互式远端浏览器</span>
+              <span class="pill">端口：8788</span>
+            </div>
+            <div class="login-lead">
+              通过 noVNC 直接在网页里操作服务器浏览器完成登录。
+            </div>
+            <ul class="feature-list">
+              <li>在远端浏览器中直接扫码登录。</li>
+              <li>短信验证码、验证按钮都由你直接操作。</li>
+              <li>登录完成后点击“保存当前登录账号”同步到系统。</li>
+            </ul>
+            <div class="button-row">
+              <button type="button" class="success-button login-desktop-open" data-relogin-unique-id="">打开交互式登录浏览器 ↗</button>
+              <button type="button" class="ghost-button login-desktop-reset">重置登录桌面 ↻</button>
+              <button type="button" class="ghost-button login-desktop-save" data-relogin-unique-id="">保存当前登录账号 ↗</button>
+            </div>
+            <p class="muted compact">登录完成后，再点击“保存当前登录账号”，把当前浏览器中的账号写入后台。</p>
+          </div>
+        </div>
+
+        <div class="login-box">
+          <div class="stack-form">
+            <strong>交互式浏览器窗口（远端浏览器工作区）</strong>
+            <div class="url-field">
+              <input id="desktop-public-url" type="text" value="{{ login_desktop_public_url }}" readonly>
+              <button type="button" class="ghost-button url-copy" id="copy-public-url">⧉</button>
+            </div>
+            <div class="desktop-frame-wrap">
+              <iframe class="desktop-frame" src="{{ login_desktop_public_url }}" title="交互式登录浏览器工作区" loading="lazy"></iframe>
+            </div>
+          </div>
+        </div>
+
+        <div class="login-box highlight"
+             id="login-desktop-controls"
+             data-public-url="{{ login_desktop_public_url }}"
+             data-csrf-token="{{ csrf_token }}">
+          <div class="status-line">
+            <h3>交互式登录浏览器</h3>
+            <span class="pill soft">推荐</span>
+          </div>
+          <div class="status-list">
+            <div class="status-item" id="desktop-status-checking">
+              <span class="status-dot"></span>
+              <span>检查中</span>
+            </div>
+            <div class="status-item pending" id="desktop-status-pending">
+              <span class="status-dot"></span>
+              <span>待登录</span>
+            </div>
+            <div class="status-item success" id="desktop-status-success">
+              <span class="status-dot"></span>
+              <span>已登录</span>
+            </div>
+            <div class="status-item error" id="desktop-status-error">
+              <span class="status-dot"></span>
+              <span>异常</span>
+            </div>
+          </div>
+          <div class="info-card">
+            <div class="status-line" style="margin-bottom: 8px;">
+              <span class="pill" id="login-desktop-runtime-state">检查中</span>
+            </div>
+            <div id="login-desktop-status-text">正在检查交互式登录桌面状态。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="account-management">
+      <div class="section-title-row">
+        <div>
+          <h2>账号管理（{{ accounts|length }}）</h2>
+          <p class="muted compact">多账号、目标好友、启停状态、交互式登录同步都在这里集中管理。</p>
+        </div>
+      </div>
+
+      {% if accounts %}
+      <div class="account-list">
+        {% for account in accounts %}
+        <article class="account-card">
+          <div class="account-head">
+            <div class="account-ident">
+              <div class="avatar-photo">{{ account.username[:1] if account.username else "账" }}</div>
+              <div>
+                <div class="account-name">{{ account.username }}</div>
+                <div class="account-sub">unique_id: {{ account.unique_id }}</div>
+              </div>
+            </div>
+            <span class="pill {% if account.enabled|default(true) %}soft{% else %}warning{% endif %}">
+              {% if account.enabled|default(true) %}已启用{% else %}已停用{% endif %}
+            </span>
+          </div>
+
+          <div class="metric-row">
+            <div class="metric-box">
+              <span class="label">Cookies</span>
+              <strong>{{ account.cookies|length }}</strong>
+            </div>
+            <div class="metric-box">
+              <span class="label">目标好友</span>
+              <strong>{{ account.targets|length }}</strong>
+            </div>
+            <div class="metric-box">
+              <span class="label">好友缓存</span>
+              <strong>{{ account.friends_cache|default([], true)|length }}</strong>
+            </div>
+          </div>
+
+          <form method="post" action="/accounts/{{ account.unique_id }}/update" class="stack-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>
+              <span>显示名</span>
+              <input type="text" name="username" value="{{ account.username }}">
+            </label>
+            <label class="check-row">
+              <input type="checkbox" name="enabled" {% if account.enabled|default(true) %}checked{% endif %}>
+              <span>启用自动续火花</span>
+            </label>
+            <label>
+              <span>手动目标好友（每行一个）</span>
+              <textarea name="targets" rows="5">{{ account.targets|default([], true)|join('\n') }}</textarea>
+            </label>
+            <p class="muted compact">好友太多刷不出来时，直接在这里填写目标昵称并保存。</p>
+
+            <div class="friend-picker"
+                 data-account-id="{{ account.unique_id }}"
+                 data-refresh-url="/accounts/{{ account.unique_id }}/friends/refresh"
+                 data-csrf-token="{{ csrf_token }}"
+                 data-updated-at="{{ account.friends_cache_updated_at|default('', true) }}">
+              <div class="friend-picker-toolbar">
+                <div>
+                  <span class="friend-picker-title">好友选择器</span>
+                  <p class="muted compact friend-picker-status">
+                    {% if account.friends_cache_updated_at %}
+                    上次刷新：{{ account.friends_cache_updated_at }}
+                    {% else %}
+                    还没有读取好友列表
+                    {% endif %}
+                  </p>
+                </div>
+                <button type="button" class="ghost-button friend-refresh-button">刷新好友列表</button>
+              </div>
+
+              <label class="friend-search">
+                <span>搜索好友</span>
+                <input type="search" class="friend-search-input" placeholder="输入昵称筛选好友">
+              </label>
+
+              <p class="friend-picker-current-targets muted compact">
+                <strong>当前目标好友：</strong>
+                <span>{{ account.targets|join('、') if account.targets else '未选择' }}</span>
+              </p>
+
+              <p class="friend-picker-summary muted compact">已选 0 人</p>
+              <div class="friend-selected-inputs"></div>
+              <div class="friend-picker-list"></div>
+
+              <script type="application/json" id="friends-cache-{{ account.unique_id }}">{{ account.friends_cache|default([], true)|tojson }}</script>
+              <script type="application/json" id="selected-targets-{{ account.unique_id }}">{{ account.targets|default([], true)|tojson }}</script>
+            </div>
+
+            <button type="submit">保存账号</button>
+          </form>
+
+          <div class="button-row">
+            <button type="button" class="ghost-button login-desktop-open" data-relogin-unique-id="{{ account.unique_id }}" data-account-name="{{ account.username }}">打开登录浏览器</button>
+            <button type="button" class="ghost-button login-desktop-save" data-relogin-unique-id="{{ account.unique_id }}" data-account-name="{{ account.username }}">保存当前浏览器登录</button>
+            <form method="post" action="/accounts/{{ account.unique_id }}/toggle-enabled">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="{% if account.enabled|default(true) %}soft-button{% else %}success-button{% endif %}" type="submit">
+                {% if account.enabled|default(true) %}停用自动续火花{% else %}启用自动续火花{% endif %}
+              </button>
+            </form>
+            <form method="post" action="/accounts/{{ account.unique_id }}/delete">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="danger-button" type="submit">删除账号</button>
+            </form>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="empty-state">还没有账号。先通过交互式登录浏览器登录并保存账号。</div>
+      {% endif %}
+    </section>
+
+    <div class="layout-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+      <section class="panel">
+        <h2>容器状态</h2>
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Image</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in ops.containers %}
+              <tr>
+                <td>{{ row.Names }}</td>
+                <td>
+                  <span class="pill {% if 'Up' in row.Status %}soft{% else %}warning{% endif %}">
+                    {{ row.Status }}
+                  </span>
+                </td>
+                <td>{{ row.Image }}</td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3">当前没有可见容器状态。</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Cron / 调度（服务端 crontab）</h2>
+        <pre class="code-block">{{ ops.crontab or "当前没有 crontab 任务。" }}</pre>
+      </section>
+
+      <section class="panel">
+        <h2>日志预览（最近 100 行）</h2>
+        <pre class="code-block light tall">{{ ops.log_tail or "暂无日志" }}</pre>
+      </section>
+    </div>
+  </div>
+
+  <aside class="stack">
+    <section class="panel" id="config-panel">
+      <h2>运行配置</h2>
+      <form method="post" action="/config" class="stack-form" style="margin-top: 14px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+          <span>固定消息模板</span>
+          <input type="text" name="messageTemplate" value="{{ runtime_config.messageTemplate }}">
+        </label>
+        <label>
+          <span>消息变体（每行一个）</span>
+          <textarea name="messageVariants" rows="5">{{ runtime_config.sendStrategy.messageVariants|join('\n') }}</textarea>
+        </label>
+        <label>
+          <span>是否随机打乱目标顺序</span>
+          <select name="shuffleTargets">
+            <option value="on" {% if runtime_config.sendStrategy.shuffleTargets %}selected{% endif %}>是</option>
+            <option value="" {% if not runtime_config.sendStrategy.shuffleTargets %}selected{% endif %}>否</option>
+          </select>
+        </label>
+        <div class="settings-grid">
+          <label>
+            <span>两条消息随机间隔（最小）</span>
+            <input type="number" name="messageIntervalSecondsMin" min="0" value="{{ runtime_config.sendStrategy.messageIntervalSecondsMin }}">
+          </label>
+          <label>
+            <span>两条消息随机间隔（最大）</span>
+            <input type="number" name="messageIntervalSecondsMax" min="0" value="{{ runtime_config.sendStrategy.messageIntervalSecondsMax }}">
+          </label>
+        </div>
+        <button type="submit">保存运行配置</button>
+      </form>
+    </section>
+
+    <section class="panel" id="ops-panel">
+      <h2>运维操作</h2>
+      <div class="button-grid" style="margin-top: 14px;">
+        <form method="post" action="/ops/run-now">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit">立刻运行一次</button>
+        </form>
+        <form method="post" action="/ops/proxy/refresh">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="ghost-button" type="submit">刷新代理订阅</button>
+        </form>
+        <form method="post" action="/ops/proxy/restart">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="danger-button" type="submit">重启代理容器</button>
+        </form>
+        <a class="link-button" href="/ops/logs">查看详细日志</a>
+      </div>
+
+      <form method="post" action="/ops/schedule" class="stack-form" style="margin-top: 16px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label>
+          <span>发送窗口（北京时间，例如 10:00-18:00/10m）</span>
+          <input type="text" name="daily_schedule" value="{{ ops.daily_schedule }}" placeholder="10:00-18:00/10m">
+        </label>
+        <button type="submit" class="ghost-button">更新发送窗口</button>
+      </form>
+
+      <div class="stack-form" style="margin-top: 16px;">
+        <label>
+          <span>Compose 根目录</span>
+          <input type="text" value="{{ ops.compose_root }}" readonly>
+        </label>
+        <label>
+          <span>Compose 文件路径</span>
+          <input type="text" value="{{ ops.compose_file or '未检测到' }}" readonly>
+        </label>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<section class="panel" id="settings-panel" style="margin-top: 20px;">
+  <div class="panel-header">
+    <div>
+      <h2>面板与服务器设置</h2>
+      <p class="muted compact">服务器参数、交互式登录桌面 API 地址、日志路径等基础设置。</p>
+    </div>
+  </div>
+  <form method="post" action="/settings" class="stack-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="settings-grid">
+      <label>
+        <span>服务器 Host</span>
+        <input type="text" name="server_host" value="{{ app_settings.server_host }}">
+      </label>
+      <label>
+        <span>服务器用户名</span>
+        <input type="text" name="server_username" value="{{ app_settings.server_username }}">
+      </label>
+      <label>
+        <span>服务器密码</span>
+        <input type="password" name="server_password" value="{{ app_settings.server_password }}">
+      </label>
+      <label>
+        <span>Compose 根目录</span>
+        <input type="text" name="compose_root" value="{{ app_settings.compose_root }}">
+      </label>
+      <label>
+        <span>任务日志文件</span>
+        <input type="text" name="ops_log_file" value="{{ app_settings.ops_log_file }}">
+      </label>
+      <label>
+        <span>代理刷新脚本</span>
+        <input type="text" name="proxy_refresh_script" value="{{ app_settings.proxy_refresh_script }}">
+      </label>
+      <label>
+        <span>交互式登录桌面 API 地址</span>
+        <input type="text" name="login_desktop_api_url" value="{{ app_settings.login_desktop_api_url }}">
+      </label>
+      <label>
+        <span>Web UI 端口</span>
+        <input type="number" min="1" max="65535" name="ui_port" value="{{ app_settings.ui_port }}">
+      </label>
+      <label>
+        <span>修改管理员密码</span>
+        <input type="password" name="new_password" placeholder="留空表示不修改">
+      </label>
+      <label>
+        <span>确认新密码</span>
+        <input type="password" name="confirm_password" placeholder="再次输入新密码">
+      </label>
+    </div>
+    <div style="display:flex; justify-content:flex-end;">
+      <button type="submit">保存设置</button>
+    </div>
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  (() => {
+    const root = document.getElementById("login-desktop-controls");
+    if (!root) return;
+
+    const csrfToken = root.dataset.csrfToken || "";
+    const publicUrl = root.dataset.publicUrl || "";
+    const runtimeStateEl = document.getElementById("login-desktop-runtime-state");
+    const statusTextEl = document.getElementById("login-desktop-status-text");
+    const openButtons = document.querySelectorAll(".login-desktop-open");
+    const saveButtons = document.querySelectorAll(".login-desktop-save");
+    const resetButtons = document.querySelectorAll(".login-desktop-reset");
+    const copyPublicUrlButton = document.getElementById("copy-public-url");
+    const statusMap = {
+      checking: document.getElementById("desktop-status-checking"),
+      pending: document.getElementById("desktop-status-pending"),
+      success: document.getElementById("desktop-status-success"),
+      error: document.getElementById("desktop-status-error"),
+    };
+
+    const setVisualStatus = (state) => {
+      Object.values(statusMap).forEach((node) => {
+        if (!node) return;
+        node.style.opacity = "0.45";
+      });
+      if (statusMap[state]) {
+        statusMap[state].style.opacity = "1";
+      }
+    };
+
+    const setStatus = (text, tone = "", state = "checking") => {
+      if (statusTextEl) statusTextEl.textContent = text;
+      if (runtimeStateEl) runtimeStateEl.className = `pill${tone ? ` ${tone}` : ""}`;
+      setVisualStatus(state);
+    };
+
+    const postForm = async (url, payload = {}) => {
+      const formData = new FormData();
+      formData.set("csrf_token", csrfToken);
+      Object.entries(payload).forEach(([key, value]) => {
+        formData.set(key, String(value ?? ""));
+      });
+      const response = await fetch(url, {
+        method: "POST",
+        body: formData,
+        credentials: "same-origin",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || `request failed: ${response.status}`);
+      }
+      return data;
+    };
+
+    const openDesktopWindow = () => {
+      const popup = window.open(publicUrl, "_blank");
+      if (!popup) {
+        setStatus("浏览器拦截了交互式登录窗口，请允许弹窗后再试。", "danger", "error");
+        return false;
+      }
+      return true;
+    };
+
+    const pollStatus = async () => {
+      try {
+        const response = await fetch("/login-desktop/status", { credentials: "same-origin" });
+        const data = await response.json();
+        if (!response.ok || data.ok === false) {
+          if (runtimeStateEl) runtimeStateEl.textContent = "不可用";
+          setStatus(data.error || "交互式登录桌面不可用", "warning", "error");
+          return;
+        }
+        if (runtimeStateEl) runtimeStateEl.textContent = data.logged_in ? "已登录" : "待登录";
+        if (data.logged_in) {
+          setStatus(`当前浏览器已登录：${data.username}（${data.unique_id}）`, "soft", "success");
+        } else {
+          setStatus("正在检查交互式登录桌面状态。当前浏览器未登录，打开浏览器开始登录。", "", "pending");
+        }
+      } catch (error) {
+        if (runtimeStateEl) runtimeStateEl.textContent = "异常";
+        setStatus(`交互式登录桌面状态检查失败：${error.message}`, "danger", "error");
+      }
+    };
+
+    if (copyPublicUrlButton) {
+      copyPublicUrlButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(publicUrl);
+          setStatus("交互式登录地址已复制，可在新标签页打开。", "soft", "pending");
+        } catch (error) {
+          setStatus(`复制失败：${error.message}`, "warning", "error");
+        }
+      });
+    }
+
+    openButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const reloginUniqueId = String(button.dataset.reloginUniqueId || "").trim();
+        const accountName = String(button.dataset.accountName || "").trim();
+        try {
+          await postForm("/login-desktop/open");
+          openDesktopWindow();
+          if (reloginUniqueId) {
+            setStatus(`已打开交互式登录浏览器，请使用账号 ${accountName || reloginUniqueId} 完成登录。`, "", "pending");
+          } else {
+            setStatus("已打开交互式登录浏览器，请在远端浏览器中完成抖音创作者中心登录。", "", "pending");
+          }
+        } catch (error) {
+          setStatus(`打开交互式登录浏览器失败：${error.message}`, "danger", "error");
+        }
+      });
+    });
+
+    saveButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        const reloginUniqueId = String(button.dataset.reloginUniqueId || "").trim();
+        const accountName = String(button.dataset.accountName || "").trim();
+        try {
+          const data = await postForm("/login-desktop/save", {
+            relogin_unique_id: reloginUniqueId,
+          });
+          setStatus(
+            reloginUniqueId
+              ? `已把当前浏览器登录保存到账号：${accountName || reloginUniqueId}`
+              : `已保存当前登录账号：${data.account?.username || ""}`,
+            "soft",
+            "success",
+          );
+          window.setTimeout(() => window.location.reload(), 800);
+        } catch (error) {
+          setStatus(`保存当前登录账号失败：${error.message}`, "danger", "error");
+        }
+      });
+    });
+
+    resetButtons.forEach((button) => {
+      button.addEventListener("click", async () => {
+        try {
+          await postForm("/login-desktop/reset");
+          setStatus("交互式登录桌面已重置，正在重新初始化浏览器…", "warning", "checking");
+          await pollStatus();
+        } catch (error) {
+          setStatus(`重置交互式登录桌面失败：${error.message}`, "danger", "error");
+        }
+      });
+    });
+
+    setVisualStatus("checking");
+    pollStatus();
+    window.setInterval(pollStatus, 5000);
+  })();
+
+  (() => {
+    const pickers = document.querySelectorAll(".friend-picker");
+    if (!pickers.length) return;
+
+    const parseJsonScript = (id) => {
+      const el = document.getElementById(id);
+      if (!el) return [];
+      try {
+        return JSON.parse(el.textContent || "[]");
+      } catch (error) {
+        console.error("Failed to parse friend picker JSON", id, error);
+        return [];
+      }
+    };
+
+    const escapeHtml = (value) =>
+      value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+
+    pickers.forEach((picker) => {
+      const accountId = picker.dataset.accountId;
+      const refreshUrl = picker.dataset.refreshUrl;
+      const csrfToken = picker.dataset.csrfToken;
+      const searchInput = picker.querySelector(".friend-search-input");
+      const refreshButton = picker.querySelector(".friend-refresh-button");
+      const listEl = picker.querySelector(".friend-picker-list");
+      const summaryEl = picker.querySelector(".friend-picker-summary");
+      const statusEl = picker.querySelector(".friend-picker-status");
+      const hiddenInputsEl = picker.querySelector(".friend-selected-inputs");
+
+      let friends = parseJsonScript(`friends-cache-${accountId}`);
+      let selected = new Set(parseJsonScript(`selected-targets-${accountId}`));
+
+      const combinedFriends = () => {
+        const merged = [];
+        const seen = new Set();
+        [...selected, ...friends].forEach((name) => {
+          if (!name || seen.has(name)) return;
+          seen.add(name);
+          merged.push(name);
+        });
+        return merged;
+      };
+
+      const renderHiddenInputs = () => {
+        hiddenInputsEl.innerHTML = "";
+        [...selected].forEach((name) => {
+          const input = document.createElement("input");
+          input.type = "hidden";
+          input.name = "targets";
+          input.value = name;
+          hiddenInputsEl.appendChild(input);
+        });
+      };
+
+      const updateSummary = () => {
+        summaryEl.textContent = `已选 ${selected.size} 人`;
+      };
+
+      const renderList = () => {
+        const query = (searchInput.value || "").trim().toLowerCase();
+        const displayNames = combinedFriends().filter((name) => name.toLowerCase().includes(query));
+        renderHiddenInputs();
+        updateSummary();
+
+        if (!combinedFriends().length) {
+          listEl.innerHTML = '<div class="friend-picker-empty">点击“刷新好友列表”后再勾选目标好友。</div>';
+          return;
+        }
+
+        if (!displayNames.length) {
+          listEl.innerHTML = '<div class="friend-picker-empty">没有匹配的好友。</div>';
+          return;
+        }
+
+        listEl.innerHTML = displayNames
+          .map(
+            (name) => `
+              <label class="friend-option ${selected.has(name) ? "selected" : ""}">
+                <span>${escapeHtml(name)}</span>
+                <input type="checkbox" value="${escapeHtml(name)}" ${selected.has(name) ? "checked" : ""}>
+              </label>
+            `
+          )
+          .join("");
+
+        listEl.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+          checkbox.addEventListener("change", () => {
+            const option = checkbox.closest(".friend-option");
+            const value = checkbox.value;
+            if (checkbox.checked) {
+              selected.add(value);
+              option?.classList.add("selected");
+            } else {
+              selected.delete(value);
+              option?.classList.remove("selected");
+            }
+            renderHiddenInputs();
+            updateSummary();
+          });
+        });
+      };
+
+      refreshButton.addEventListener("click", async () => {
+        refreshButton.disabled = true;
+        const originalText = refreshButton.textContent;
+        refreshButton.textContent = "刷新中...";
+        statusEl.textContent = "正在实时读取好友列表…";
+        try {
+          const formData = new FormData();
+          formData.set("csrf_token", csrfToken);
+          const response = await fetch(refreshUrl, {
+            method: "POST",
+            body: formData,
+            credentials: "same-origin",
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            throw new Error(payload.error || "刷新好友列表失败");
+          }
+          friends = Array.isArray(payload.friends) ? payload.friends : [];
+          statusEl.textContent = payload.message || `已刷新 ${friends.length} 个好友`;
+          renderList();
+        } catch (error) {
+          statusEl.textContent = error.message || "刷新好友列表失败";
+        } finally {
+          refreshButton.disabled = false;
+          refreshButton.textContent = originalText;
+        }
+      });
+
+      searchInput.addEventListener("input", renderList);
+      renderList();
+    });
+  })();
+</script>
+{% endblock %}

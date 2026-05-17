@@ -1,0 +1,54 @@
+FROM mcr.microsoft.com/playwright/python:v1.56.0-jammy
+
+WORKDIR /app
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG http_proxy
+ARG https_proxy
+ARG all_proxy
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV ALL_PROXY=${ALL_PROXY}
+ENV http_proxy=${http_proxy}
+ENV https_proxy=${https_proxy}
+ENV all_proxy=${all_proxy}
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list \
+    && sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list \
+    && ln -fs /usr/share/zoneinfo/${TZ} /etc/localtime \
+    && echo ${TZ} > /etc/timezone \
+    && apt-get update && apt-get install -y \
+      cron \
+      curl \
+      fluxbox \
+      fonts-wqy-zenhei \
+      fonts-noto-cjk \
+      novnc \
+      websockify \
+      x11vnc \
+      xfonts-intl-chinese \
+    && curl -fsSL -x http://127.0.0.1:7890 https://download.docker.com/linux/static/stable/x86_64/docker-25.0.3.tgz -o docker.tgz \
+    && tar xzvf docker.tgz \
+    && mv docker/docker /usr/bin/docker \
+    && chmod +x /usr/bin/docker \
+    && rm -rf docker docker.tgz \
+    && mkdir -p /usr/local/lib/docker/cli-plugins \
+    && curl -SL -x http://127.0.0.1:7890 https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose \
+    && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+CMD ["python", "main.py", "--doTask"]

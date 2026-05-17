@@ -1,0 +1,14 @@
+﻿.env
+state/
+logs/
+*.bak-*
+*.tar.gz
+
+DouYinSparkFlow/.im_sdk_cache/
+DouYinSparkFlow/logs/
+DouYinSparkFlow/usersData.json
+DouYinSparkFlow/webui_settings.json
+DouYinSparkFlow/im_client_introspect.mjs
+DouYinSparkFlow/core/protocol_sender_debug.mjs
+DouYinSparkFlow/**/__pycache__/
+DouYinSparkFlow/**/*.pyc

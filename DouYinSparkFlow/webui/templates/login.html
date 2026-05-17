@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>登录 | 抖音多账号续火花控制台</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        background:
+          radial-gradient(circle at top right, rgba(45, 107, 255, 0.12), transparent 28%),
+          radial-gradient(circle at bottom left, rgba(43, 162, 76, 0.1), transparent 20%),
+          #f4f7fb;
+        color: #162033;
+      }
+      .card {
+        width: min(92vw, 420px);
+        background: #fff;
+        border: 1px solid #dfe6f1;
+        border-radius: 8px;
+        padding: 28px;
+        box-shadow: 0 16px 38px rgba(17, 35, 68, 0.12);
+      }
+      h1 {
+        margin: 0 0 10px;
+        font-size: 28px;
+      }
+      p {
+        margin: 0 0 20px;
+        color: #66748f;
+        line-height: 1.6;
+      }
+      form {
+        display: grid;
+        gap: 14px;
+      }
+      label {
+        display: grid;
+        gap: 8px;
+      }
+      span {
+        font-size: 13px;
+        color: #66748f;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        border: 1px solid #cfd9ea;
+        border-radius: 6px;
+        padding: 12px 14px;
+      }
+      button {
+        border: none;
+        border-radius: 6px;
+        padding: 12px 14px;
+        background: linear-gradient(180deg, #3677ff, #2d6bff);
+        color: #fff;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .flash {
+        margin-bottom: 16px;
+        padding: 12px 14px;
+        border-radius: 6px;
+        font-size: 13px;
+      }
+      .flash.success { background: #edf9f0; color: #13632b; }
+      .flash.warning { background: #fff5e8; color: #915700; }
+      .flash.error { background: #fff0f0; color: #8d2e2e; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>控制台登录</h1>
+      <p>用于管理抖音多账号、目标好友、自动续火花任务与运维配置。</p>
+
+      {% if flash %}
+      <div class="flash {{ flash.level }}">{{ flash.message }}</div>
+      {% endif %}
+
+      {% if not bootstrapped %}
+      <form method="post" action="/bootstrap">
+        <label>
+          <span>管理员用户名</span>
+          <input type="text" name="username" value="admin">
+        </label>
+        <label>
+          <span>管理员密码</span>
+          <input type="password" name="password">
+        </label>
+        <label>
+          <span>确认密码</span>
+          <input type="password" name="confirm_password">
+        </label>
+        <button type="submit">初始化管理员账号</button>
+      </form>
+      {% else %}
+      <form method="post" action="/login">
+        <label>
+          <span>管理员用户名</span>
+          <input type="text" name="username" value="admin">
+        </label>
+        <label>
+          <span>管理员密码</span>
+          <input type="password" name="password">
+        </label>
+        <button type="submit">登录控制台</button>
+      </form>
+      {% endif %}
+    </div>
+  </body>
+</html>
