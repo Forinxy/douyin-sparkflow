@@ -141,6 +141,74 @@
       </div>
     </section>
 
+    <section class="panel" id="send-console-summary">
+      <div class="section-title-row">
+        <div>
+          <h2>发送控制台摘要</h2>
+          <p class="muted compact">展示今天的成功、失败、待发送与待补发状态。失败目标可在详情页单独重试。</p>
+        </div>
+        <a class="link-button" href="/ops/send-console">打开发送控制台</a>
+      </div>
+      <div class="stats-grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">启用账号</span>
+            <strong class="stat-value">{{ ops.send_console.summary.enabled_accounts }}</strong>
+          </div>
+          <div class="stat-icon blue">A</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">今日成功目标</span>
+            <strong class="stat-value">{{ ops.send_console.summary.today_sent_targets }}</strong>
+          </div>
+          <div class="stat-icon green">OK</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">失败待补发</span>
+            <strong class="stat-value">{{ ops.send_console.summary.today_failed_targets }}</strong>
+          </div>
+          <div class="stat-icon soft">!</div>
+        </article>
+        <article class="stat-card">
+          <div class="stat-meta">
+            <span class="stat-label">待发送 / 未处理</span>
+            <strong class="stat-value">{{ ops.send_console.summary.today_pending_targets + ops.send_console.summary.today_unprocessed_targets }}</strong>
+          </div>
+          <div class="stat-icon soft">...</div>
+        </article>
+      </div>
+      <div class="table-shell" style="margin-top: 16px;">
+        <table>
+          <thead>
+            <tr>
+              <th>账号</th>
+              <th>今日成功</th>
+              <th>失败待补发</th>
+              <th>待发送</th>
+              <th>未处理</th>
+              <th>最后失败原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in ops.send_console.accounts %}
+            <tr>
+              <td><strong>{{ row.username }}</strong><br><span class="muted">{{ row.unique_id }}</span></td>
+              <td>{{ row.sent_targets|length }}</td>
+              <td>{{ row.failed_targets|length }}</td>
+              <td>{{ row.pending_targets|length }}</td>
+              <td>{{ row.unprocessed_targets|length }}</td>
+              <td>{{ row.last_failure_reason or "-" }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="6">暂无发送状态摘要。</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="panel" id="account-management">
       <div class="section-title-row">
         <div>
@@ -437,6 +505,21 @@
 
 {% block scripts %}
 <script>
+  (() => {
+    const runNowForm = document.querySelector('form[action="/ops/run-now"]');
+    if (!runNowForm) return;
+    const button = runNowForm.querySelector('button[type="submit"]');
+    if (button) {
+      button.textContent = "补发全部失败项";
+    }
+    if (!runNowForm.nextElementSibling || !runNowForm.nextElementSibling.classList.contains("failed-only-note")) {
+      const note = document.createElement("p");
+      note.className = "muted compact failed-only-note";
+      note.textContent = "“补发全部失败项”只处理今天 failure_queue 中的目标，不会全量重发全部账号。";
+      runNowForm.insertAdjacentElement("afterend", note);
+    }
+  })();
+
   (() => {
     const root = document.getElementById("login-desktop-controls");
     if (!root) return;

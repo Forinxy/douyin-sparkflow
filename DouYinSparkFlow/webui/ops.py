@@ -1,13 +1,16 @@
 import json
+import hashlib
 import logging
 import os
 import re
 import shlex
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from utils.config import get_app_settings, get_config, repo_root, save_config
+from utils.config import get_app_settings, get_config, get_userData, normalize_unique_id, repo_root, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +196,7 @@ def run_task_now():
             cwd=cwd,
             env={
                 "SPARKFLOW_MANUAL_RUN": "1",
+                "SPARKFLOW_MANUAL_FAILED_ONLY": "1",
                 "PYTHONUNBUFFERED": "1",
             },
         )
@@ -375,6 +379,172 @@ def current_daily_schedule():
     return ""
 
 
+def _schedule_timezone():
+    timezone_name = (
+        str(os.getenv("SPARKFLOW_TIMEZONE") or "").strip()
+        or str(os.getenv("TZ") or "").strip()
+        or "Asia/Shanghai"
+    )
+    try:
+        return ZoneInfo(timezone_name)
+    except Exception:
+        if timezone_name == "Asia/Shanghai":
+            return timezone(timedelta(hours=8), name="Asia/Shanghai")
+        return datetime.now().astimezone().tzinfo
+
+
+def _normalize_send_window():
+    raw = dict(get_config(force_reload=True).get("dailySendWindow") or {})
+    return {
+        "enabled": bool(raw.get("enabled", False)),
+        "startHour": int(raw.get("startHour", 10)),
+        "endHour": int(raw.get("endHour", 18)),
+        "scheduleIntervalMinutes": max(1, int(raw.get("scheduleIntervalMinutes", 10))),
+    }
+
+
+def _parse_sent_at(raw_value, local_tz):
+    if not raw_value:
+        return None
+    raw = str(raw_value).strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=local_tz)
+    return parsed.astimezone(local_tz)
+
+
+def _account_identity(user):
+    return str(user.get("unique_id") or user.get("username") or "unknown").strip()
+
+
+def _scheduled_send_time(user, target_name, send_window, now):
+    window_minutes = max(1, (send_window["endHour"] - send_window["startHour"]) * 60)
+    start_of_window = now.replace(
+        hour=send_window["startHour"],
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    seed = f"{now.date().isoformat()}|{_account_identity(user)}|{target_name}"
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    offset_minutes = int.from_bytes(digest[:8], "big") % window_minutes
+    return start_of_window + timedelta(minutes=offset_minutes)
+
+
+def _build_target_status(account, target_name, now, send_window):
+    history = dict(account.get("message_history") or {})
+    failure_queue = dict(account.get("failure_queue") or {})
+
+    history_entry = history.get(target_name) or {}
+    sent_at = _parse_sent_at(history_entry.get("sentAt"), now.tzinfo)
+    if sent_at and sent_at.date() == now.date():
+        return {
+            "target": target_name,
+            "status": "sent",
+            "message": str(history_entry.get("message") or ""),
+            "sentAt": sent_at.isoformat(timespec="seconds"),
+            "lastAttemptAt": "",
+            "category": "",
+            "reason": "",
+            "attemptCount": 0,
+            "scheduledAt": "",
+        }
+
+    failure_entry = failure_queue.get(target_name) or {}
+    last_attempt_at = _parse_sent_at(failure_entry.get("lastAttemptAt"), now.tzinfo)
+    if last_attempt_at and last_attempt_at.date() == now.date():
+        return {
+            "target": target_name,
+            "status": "failed",
+            "message": str(failure_entry.get("message") or ""),
+            "sentAt": "",
+            "lastAttemptAt": last_attempt_at.isoformat(timespec="seconds"),
+            "category": str(failure_entry.get("category") or ""),
+            "reason": str(failure_entry.get("reason") or ""),
+            "attemptCount": int(failure_entry.get("attemptCount") or 0),
+            "scheduledAt": "",
+        }
+
+    scheduled_at = None
+    if send_window.get("enabled"):
+        scheduled_at = _scheduled_send_time(account, target_name, send_window, now)
+        if scheduled_at > now:
+            return {
+                "target": target_name,
+                "status": "pending",
+                "message": "",
+                "sentAt": "",
+                "lastAttemptAt": "",
+                "category": "",
+                "reason": "",
+                "attemptCount": 0,
+                "scheduledAt": scheduled_at.isoformat(timespec="seconds"),
+            }
+
+    return {
+        "target": target_name,
+        "status": "unprocessed",
+        "message": "",
+        "sentAt": "",
+        "lastAttemptAt": "",
+        "category": "",
+        "reason": "",
+        "attemptCount": 0,
+        "scheduledAt": scheduled_at.isoformat(timespec="seconds") if scheduled_at else "",
+    }
+
+
+def get_send_console_snapshot():
+    accounts = [account for account in get_userData(force_reload=True) if account.get("enabled", True)]
+    send_window = _normalize_send_window()
+    now = datetime.now(_schedule_timezone())
+
+    summary = {
+        "enabled_accounts": len(accounts),
+        "today_sent_targets": 0,
+        "today_failed_targets": 0,
+        "today_pending_targets": 0,
+        "today_unprocessed_targets": 0,
+    }
+    account_rows = []
+
+    for account in accounts:
+        statuses = [_build_target_status(account, target_name, now, send_window) for target_name in account.get("targets") or []]
+        sent_targets = [item for item in statuses if item["status"] == "sent"]
+        failed_targets = [item for item in statuses if item["status"] == "failed"]
+        pending_targets = [item for item in statuses if item["status"] == "pending"]
+        unprocessed_targets = [item for item in statuses if item["status"] == "unprocessed"]
+
+        summary["today_sent_targets"] += len(sent_targets)
+        summary["today_failed_targets"] += len(failed_targets)
+        summary["today_pending_targets"] += len(pending_targets)
+        summary["today_unprocessed_targets"] += len(unprocessed_targets)
+
+        account_rows.append(
+            {
+                "unique_id": str(account.get("unique_id") or ""),
+                "username": account.get("username") or "",
+                "sent_targets": sent_targets,
+                "failed_targets": failed_targets,
+                "pending_targets": pending_targets,
+                "unprocessed_targets": unprocessed_targets,
+                "last_failure_reason": failed_targets[0]["reason"] if failed_targets else "",
+                "failure_queue": dict(account.get("failure_queue") or {}),
+            }
+        )
+
+    return {
+        "now": now.isoformat(timespec="seconds"),
+        "summary": summary,
+        "accounts": account_rows,
+    }
+
+
 def _check_image_present():
     """Return True if the douyin-sparkflow:local image exists."""
     try:
@@ -400,6 +570,7 @@ def get_ops_snapshot():
         "compose_file": str(compose_file_path() or ""),
         "containers": get_container_status(),
         "task_containers": get_task_container_rows(),
+        "send_console": get_send_console_snapshot(),
         "daily_schedule": current_daily_schedule(),
         "crontab": read_crontab(),
         "log_tail": read_log_tail(120),

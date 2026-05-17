@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +37,18 @@ async def retry_operation(name, operation, retries=3, delay=2, *args, **kwargs):
 
 def _safe_name(value):
     return "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in value)[:80]
+
+
+def _normalize_target_name(value):
+    raw = unicodedata.normalize("NFKC", str(value or ""))
+    for token in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        raw = raw.replace(token, "")
+    raw = raw.replace("\xa0", " ")
+    return " ".join(raw.split()).strip()
+
+
+def _current_run_mode():
+    return "manual" if _is_manual_run() else "scheduled"
 
 
 async def save_debug_artifacts(page, account_name, target_name, stage):
@@ -103,6 +116,56 @@ async def confirm_message_sent(page, chat_input, message):
     return False, f"chat input still contains: {input_text!r}"
 
 
+async def detect_message_already_sent(page, chat_input, message):
+    try:
+        if chat_input is not None:
+            sent_ok, detail = await confirm_message_sent(page, chat_input, message)
+            if sent_ok:
+                return True, detail
+    except Exception:
+        pass
+
+    first_line = message.split("\n")[0].strip()
+    if not first_line:
+        return False, ""
+
+    try:
+        bubble = page.locator(f"text={first_line}").last
+        if await bubble.count() > 0:
+            return True, "message bubble located after failure"
+    except Exception:
+        pass
+
+    return False, ""
+
+
+def classify_browser_failure(stage, exc):
+    detail = str(exc or "")
+    lowered = detail.lower()
+
+    if "page crashed" in lowered or "target page, context or browser has been closed" in lowered:
+        return "page_crashed"
+    if "timeout" in lowered:
+        if stage in {"open_creator_home", "open_chat_page"}:
+            return "navigation_timeout"
+        if stage == "locate_chat_input":
+            return "chat_input_timeout"
+        if stage == "friend_list":
+            return "friend_list_timeout"
+        return "timeout"
+    if "unable to locate chat input" in lowered:
+        return "chat_input_not_found"
+    if "could not find the friend list scroll container" in lowered:
+        return "friend_list_container_missing"
+    if "chat input still contains" in lowered:
+        return "send_unconfirmed"
+    if "missing targets" in lowered:
+        return "friend_not_found"
+    if stage in {"open_creator_home", "open_chat_page"}:
+        return "navigation_failed"
+    return "unknown"
+
+
 async def scroll_and_select_user(page, account_name, targets):
     friends_tab_selector = 'xpath=//*[@id="sub-app"]/div/div/div[1]/div[2]'
     target_selector = (
@@ -126,8 +189,13 @@ async def scroll_and_select_user(page, account_name, targets):
     await page.locator(first_friend_selector).click()
     await asyncio.sleep(2)
 
+    normalized_targets = {
+        _normalize_target_name(target): str(target)
+        for target in targets
+        if _normalize_target_name(target)
+    }
     found_usernames = set()
-    remaining_targets = set(targets)
+    remaining_targets = set(normalized_targets)
 
     while True:
         target_elements = await page.locator(target_selector).all()
@@ -139,24 +207,40 @@ async def scroll_and_select_user(page, account_name, targets):
             except Exception:
                 continue
 
-            if target_name in found_usernames:
+            normalized_target_name = _normalize_target_name(target_name)
+            if not normalized_target_name:
                 continue
-            found_usernames.add(target_name)
+
+            if normalized_target_name in found_usernames:
+                continue
+            found_usernames.add(normalized_target_name)
             logger.debug("Account %s found friend entry %s", account_name, target_name)
 
-            if target_name in targets:
+            matched_target_name = normalized_targets.get(normalized_target_name)
+            if matched_target_name:
                 await element.click()
                 logger.info("Account %s selected target friend %s", account_name, target_name)
-                yield target_name
+                if matched_target_name != target_name:
+                    logger.info(
+                        "Account %s normalized target %r matched visible friend %r",
+                        account_name,
+                        matched_target_name,
+                        target_name,
+                    )
+                yield matched_target_name
 
-                remaining_targets.discard(target_name)
+                remaining_targets.discard(normalized_target_name)
                 if not remaining_targets:
                     logger.info("Account %s found all target friends", account_name)
                     return
                 break
         else:
             if await page.locator(no_more_selector).count() > 0:
-                logger.warning("Account %s reached the end of the friend list. Missing targets: %s", account_name, sorted(remaining_targets))
+                logger.warning(
+                    "Account %s reached the end of the friend list. Missing targets: %s",
+                    account_name,
+                    sorted(normalized_targets[item] for item in remaining_targets),
+                )
                 return
 
             if await page.locator(loading_selector).count() > 0:
@@ -229,11 +313,33 @@ def _parse_sent_at(raw_value, local_tz):
     return parsed.astimezone(local_tz)
 
 
+def _manual_run_failed_only():
+    return _is_manual_run() and os.getenv("SPARKFLOW_MANUAL_FAILED_ONLY") == "1"
+
+
 def _target_sent_today(user, target_name, now):
     history = dict(user.get("message_history") or {})
     entry = history.get(target_name) or {}
     sent_at = _parse_sent_at(entry.get("sentAt"), now.tzinfo)
     return bool(sent_at and sent_at.date() == now.date())
+
+
+def _target_failed_today(user, target_name, now):
+    queue = dict(user.get("failure_queue") or {})
+    entry = queue.get(target_name) or {}
+    last_attempt_at = _parse_sent_at(entry.get("lastAttemptAt"), now.tzinfo)
+    return bool(last_attempt_at and last_attempt_at.date() == now.date())
+
+
+def _pending_failed_targets(user, now):
+    queue = dict(user.get("failure_queue") or {})
+    targets = []
+    for target_name in user.get("targets") or []:
+        if _target_sent_today(user, target_name, now):
+            continue
+        if target_name in queue and _target_failed_today(user, target_name, now):
+            targets.append(target_name)
+    return targets
 
 
 def _scheduled_send_time(user, target_name, send_window, now):
@@ -253,7 +359,7 @@ def _scheduled_send_time(user, target_name, send_window, now):
 def _select_due_targets(user, send_window, now):
     targets = list(user.get("targets") or [])
     if not send_window.get("enabled") or _is_manual_run():
-        return targets, [], []
+        return targets, [], [], []
 
     window_start = now.replace(
         hour=send_window["startHour"],
@@ -268,24 +374,51 @@ def _select_due_targets(user, send_window, now):
         microsecond=0,
     )
     if now < window_start or now > window_end:
-        return [], [], [(target, _scheduled_send_time(user, target, send_window, now)) for target in targets]
+        return [], [], [(target, _scheduled_send_time(user, target, send_window, now)) for target in targets], []
 
     due_targets = []
     already_sent = []
     pending_targets = []
+    queued_failures = []
     for target_name in targets:
         if _target_sent_today(user, target_name, now):
             already_sent.append(target_name)
+            continue
+        if _target_failed_today(user, target_name, now):
+            queued_failures.append(target_name)
             continue
         scheduled_at = _scheduled_send_time(user, target_name, send_window, now)
         if now >= scheduled_at:
             due_targets.append(target_name)
         else:
             pending_targets.append((target_name, scheduled_at))
-    return due_targets, already_sent, pending_targets
+    return due_targets, already_sent, pending_targets, queued_failures
 
 
 def _prepare_active_users_for_run(active_config, active_user_data):
+    schedule_tz = _schedule_timezone()
+    now = datetime.now(schedule_tz)
+
+    if _manual_run_failed_only():
+        logger.info("SPARKFLOW_MANUAL_RUN=1, retrying queued failures only")
+        runnable_users = []
+        for user in active_user_data:
+            retry_targets = _pending_failed_targets(user, now)
+            already_sent = [target for target in user.get("targets") or [] if _target_sent_today(user, target, now)]
+            logger.info(
+                "manual-retry user=%s retryTargets=%s alreadySentToday=%s",
+                user.get("username", "unknown"),
+                retry_targets,
+                already_sent,
+            )
+            if retry_targets:
+                runnable_user = dict(user)
+                runnable_user["targets"] = retry_targets
+                runnable_users.append(runnable_user)
+        if not runnable_users:
+            logger.info("No queued failures are pending for manual retry")
+        return runnable_users
+
     if _is_manual_run():
         logger.info("SPARKFLOW_MANUAL_RUN=1, bypassing daily send window")
         return [dict(user, targets=list(user.get("targets") or [])) for user in active_user_data]
@@ -294,8 +427,6 @@ def _prepare_active_users_for_run(active_config, active_user_data):
     if not send_window.get("enabled"):
         return [dict(user, targets=list(user.get("targets") or [])) for user in active_user_data]
 
-    schedule_tz = _schedule_timezone()
-    now = datetime.now(schedule_tz)
     logger.info(
         "dailySendWindow enabled startHour=%s endHour=%s intervalMinutes=%s timezone=%s now=%s",
         send_window["startHour"],
@@ -307,17 +438,18 @@ def _prepare_active_users_for_run(active_config, active_user_data):
 
     runnable_users = []
     for user in active_user_data:
-        due_targets, already_sent, pending_targets = _select_due_targets(user, send_window, now)
+        due_targets, already_sent, pending_targets, queued_failures = _select_due_targets(user, send_window, now)
         pending_preview = [
             f"{target_name}@{scheduled_at.strftime('%H:%M')}"
             for target_name, scheduled_at in pending_targets[:5]
         ]
         logger.info(
-            "windowed user=%s dueTargets=%s alreadySentToday=%s pendingTargets=%s",
+            "windowed user=%s dueTargets=%s alreadySentToday=%s pendingTargets=%s queuedFailures=%s",
             user.get("username", "unknown"),
             due_targets,
             already_sent,
             pending_preview,
+            queued_failures,
         )
         if due_targets:
             runnable_user = dict(user)
@@ -343,29 +475,67 @@ def _account_match_tokens(user):
     return tokens
 
 
-def _persist_browser_send_success(user, target_name, message, sent_at):
+def _find_matching_account(accounts, user):
     target_username = str(user.get("username") or "").strip()
     target_unique_id = normalize_unique_id(user.get("unique_id"))
     if not target_username and not target_unique_id:
-        logger.warning("Cannot persist browser send history without account identity for target=%s", target_name)
-        return
+        return None
 
-    accounts = get_userData(force_reload=True)
-    matched_account = None
     for account in accounts:
         account_username = str(account.get("username") or "").strip()
         account_unique_id = normalize_unique_id(account.get("unique_id"))
         if target_unique_id and account_unique_id == target_unique_id:
-            matched_account = account
-            break
+            return account
         if target_username and account_username == target_username:
-            matched_account = account
-            break
+            return account
+    return None
 
+
+def _persist_browser_send_failure(user, target_name, message, category, reason, attempted_at):
+    accounts = get_userData(force_reload=True)
+    matched_account = _find_matching_account(accounts, user)
+    if matched_account is None:
+        logger.warning(
+            "Could not find account to persist browser send failure for user=%s target=%s",
+            user.get("username", "unknown"),
+            target_name,
+        )
+        return
+
+    queue = dict(matched_account.get("failure_queue") or {})
+    existing_entry = dict(queue.get(target_name) or {})
+    queue[target_name] = {
+        "category": category,
+        "reason": reason,
+        "message": message,
+        "firstAttemptAt": existing_entry.get("firstAttemptAt") or attempted_at,
+        "lastAttemptAt": attempted_at,
+        "attemptCount": int(existing_entry.get("attemptCount") or 0) + 1,
+        "lastRunMode": _current_run_mode(),
+    }
+    matched_account["failure_queue"] = queue
+    save_userData(accounts)
+
+    user_queue = dict(user.get("failure_queue") or {})
+    user_queue[target_name] = dict(queue[target_name])
+    user["failure_queue"] = user_queue
+
+    logger.warning(
+        "Queued failed browser send for %s/%s category=%s reason=%s",
+        matched_account.get("username", "unknown"),
+        target_name,
+        category,
+        reason,
+    )
+
+
+def _persist_browser_send_success(user, target_name, message, sent_at):
+    accounts = get_userData(force_reload=True)
+    matched_account = _find_matching_account(accounts, user)
     if matched_account is None:
         logger.warning(
             "Could not find account to persist browser send history for user=%s target=%s",
-            target_username or target_unique_id or "unknown",
+            user.get("username", "unknown"),
             target_name,
         )
         return
@@ -376,6 +546,12 @@ def _persist_browser_send_success(user, target_name, message, sent_at):
         "sentAt": sent_at,
     }
     matched_account["message_history"] = history
+    queue = dict(matched_account.get("failure_queue") or {})
+    queue.pop(target_name, None)
+    if queue:
+        matched_account["failure_queue"] = queue
+    else:
+        matched_account.pop("failure_queue", None)
     save_userData(accounts)
 
     user_history = dict(user.get("message_history") or {})
@@ -384,6 +560,12 @@ def _persist_browser_send_success(user, target_name, message, sent_at):
         "sentAt": sent_at,
     }
     user["message_history"] = user_history
+    user_queue = dict(user.get("failure_queue") or {})
+    user_queue.pop(target_name, None)
+    if user_queue:
+        user["failure_queue"] = user_queue
+    else:
+        user.pop("failure_queue", None)
 
     logger.info(
         "Persisted browser send history for %s/%s at %s",
@@ -441,63 +623,125 @@ async def do_user_task(browser, user, semaphore):
         context = await browser.new_context()
         context.set_default_navigation_timeout(120000)
         context.set_default_timeout(120000)
+        yielded_targets = set()
 
         try:
             page = await context.new_page()
-            await retry_operation(
-                "open creator home",
-                page.goto,
-                retries=3,
-                delay=5,
-                url="https://creator.douyin.com/",
-            )
-            await context.add_cookies(cookies)
-            await retry_operation(
-                "open chat page",
-                page.goto,
-                retries=3,
-                delay=5,
-                url="https://creator.douyin.com/creator-micro/data/following/chat",
-            )
+            try:
+                await retry_operation(
+                    "open creator home",
+                    page.goto,
+                    retries=3,
+                    delay=5,
+                    url="https://creator.douyin.com/",
+                )
+                await context.add_cookies(cookies)
+                await retry_operation(
+                    "open chat page",
+                    page.goto,
+                    retries=3,
+                    delay=5,
+                    url="https://creator.douyin.com/creator-micro/data/following/chat",
+                )
+            except Exception as exc:
+                attempted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                category = classify_browser_failure("open_chat_page", exc)
+                reason = str(exc)
+                logger.exception("Account %s failed before target delivery", account_name)
+                for target_name in targets:
+                    _persist_browser_send_failure(user, target_name, "", category, reason, attempted_at)
+                return
 
             logger.info("Account %s started the message flow", account_name)
-            async for target_name in scroll_and_select_user(page, account_name, targets):
-                try:
-                    await save_debug_artifacts(page, account_name, target_name, "selected-friend")
-                    chat_input, selector_used = await locate_chat_input(page)
-                    logger.info("Using chat input selector %s for %s/%s", selector_used, account_name, target_name)
+            try:
+                async for target_name in scroll_and_select_user(page, account_name, targets):
+                    yielded_targets.add(target_name)
+                    message = ""
+                    chat_input = None
+                    try:
+                        await save_debug_artifacts(page, account_name, target_name, "selected-friend")
+                        chat_input, selector_used = await locate_chat_input(page)
+                        logger.info("Using chat input selector %s for %s/%s", selector_used, account_name, target_name)
 
-                    message = build_message()
-                    logger.info("Prepared message for %s/%s: %r", account_name, target_name, message)
+                        message = build_message()
+                        logger.info("Prepared message for %s/%s: %r", account_name, target_name, message)
 
-                    lines = message.split("\n")
-                    for index, line in enumerate(lines):
-                        await chat_input.type(line, delay=50)
-                        if index < len(lines) - 1:
-                            await chat_input.press("Shift+Enter")
+                        lines = message.split("\n")
+                        for index, line in enumerate(lines):
+                            await chat_input.type(line, delay=50)
+                            if index < len(lines) - 1:
+                                await chat_input.press("Shift+Enter")
 
-                    await save_debug_artifacts(page, account_name, target_name, "typed-message")
+                        await save_debug_artifacts(page, account_name, target_name, "typed-message")
 
-                    logger.info("Pressing Enter to send message for %s/%s", account_name, target_name)
-                    await chat_input.press("Enter")
+                        logger.info("Pressing Enter to send message for %s/%s", account_name, target_name)
+                        await chat_input.press("Enter")
 
-                    sent_ok, detail = await confirm_message_sent(page, chat_input, message)
-                    await save_debug_artifacts(page, account_name, target_name, "after-send")
+                        sent_ok, detail = await confirm_message_sent(page, chat_input, message)
+                        await save_debug_artifacts(page, account_name, target_name, "after-send")
 
-                    if not sent_ok:
-                        raise RuntimeError(detail)
+                        if not sent_ok:
+                            raise RuntimeError(detail)
 
-                    logger.info("Message send confirmed for %s/%s: %s", account_name, target_name, detail)
-                    _persist_browser_send_success(
+                        logger.info("Message send confirmed for %s/%s: %s", account_name, target_name, detail)
+                        _persist_browser_send_success(
+                            user,
+                            target_name,
+                            message,
+                            datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        )
+                    except Exception as exc:
+                        sent_ok = False
+                        detail = ""
+                        if message:
+                            sent_ok, detail = await detect_message_already_sent(page, chat_input, message)
+                        if sent_ok:
+                            logger.warning(
+                                "Recovered send outcome for %s/%s after failure: %s",
+                                account_name,
+                                target_name,
+                                detail,
+                            )
+                            _persist_browser_send_success(
+                                user,
+                                target_name,
+                                message,
+                                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                            )
+                            continue
+
+                        logger.exception("Send flow failed for %s/%s", account_name, target_name)
+                        await save_debug_artifacts(page, account_name, target_name, "send-error")
+                        _persist_browser_send_failure(
+                            user,
+                            target_name,
+                            message,
+                            classify_browser_failure("send_flow", exc),
+                            str(exc),
+                            datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        )
+            except Exception as exc:
+                remaining_targets = [target for target in targets if target not in yielded_targets]
+                attempted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                category = classify_browser_failure("friend_list", exc)
+                reason = str(exc)
+                logger.exception("Target selection failed for %s", account_name)
+                for target_name in remaining_targets:
+                    _persist_browser_send_failure(user, target_name, "", category, reason, attempted_at)
+                return
+
+            missing_targets = [target for target in targets if target not in yielded_targets]
+            if missing_targets:
+                attempted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                for target_name in missing_targets:
+                    _persist_browser_send_failure(
                         user,
                         target_name,
-                        message,
-                        datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        "",
+                        "friend_not_found",
+                        "target not selected from friend list",
+                        attempted_at,
                     )
-                except Exception:
-                    logger.exception("Send flow failed for %s/%s", account_name, target_name)
-                    await save_debug_artifacts(page, account_name, target_name, "send-error")
-                    raise
         finally:
             await context.close()
 

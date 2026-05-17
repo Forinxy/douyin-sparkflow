@@ -1,7 +1,7 @@
 import json
 import logging
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import urllib.error
 import urllib.request
@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 logger = logging.getLogger(__name__)
 
 from core.friends import fetch_account_friends
+from core.tasks import run_browser_tasks
 from utils.config import (
     get_app_settings,
     get_config,
@@ -94,6 +95,31 @@ def coerce_int(value, default, minimum=0):
         return max(minimum, int(str(value).strip()))
     except (TypeError, ValueError):
         return max(minimum, int(default))
+
+
+def _schedule_timezone():
+    return timezone(timedelta(hours=8), name="Asia/Shanghai")
+
+
+def _parse_sent_at(raw_value):
+    if not raw_value:
+        return None
+    raw = str(raw_value).strip()
+    if raw.endswith("Z"):
+        raw = raw[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=_schedule_timezone())
+    return parsed.astimezone(_schedule_timezone())
+
+
+def _target_sent_today(account, target_name):
+    entry = dict(account.get("message_history") or {}).get(target_name) or {}
+    sent_at = _parse_sent_at(entry.get("sentAt"))
+    return bool(sent_at and sent_at.date() == datetime.now(_schedule_timezone()).date())
 
 
 def login_desktop_api_url():
@@ -278,6 +304,21 @@ def create_app():
             },
         )
 
+    @app.get("/ops/send-console", response_class=HTMLResponse)
+    async def send_console_page(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        return render_template(
+            request,
+            "send_console.html",
+            {
+                "flash": pop_flash(request),
+                "ops": get_ops_snapshot(),
+            },
+        )
+
     @app.post("/accounts/{unique_id}/update")
     async def update_account(request: Request, unique_id: str):
         maybe_redirect = require_user(request)
@@ -377,6 +418,47 @@ def create_app():
         else:
             flash(request, "Account not found.", "error")
         return redirect("/")
+
+    @app.post("/accounts/{unique_id}/retry-target")
+    async def retry_account_target(request: Request, unique_id: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        target_name = str(form.get("target", "")).strip()
+        if not target_name:
+            flash(request, "Target is required for retry.", "error")
+            return redirect("/ops/send-console")
+
+        accounts = get_userData(force_reload=True)
+        account = find_account(accounts, unique_id)
+        if not account:
+            flash(request, "Account not found.", "error")
+            return redirect("/ops/send-console")
+
+        account_copy = dict(account)
+        account_copy["targets"] = [target_name]
+        config = get_config(force_reload=True)
+        config["taskCount"] = 1
+
+        try:
+            await run_browser_tasks(config, [account_copy])
+        except Exception as exc:
+            flash(request, f"Retry failed for {account.get('username', 'Account')} / {target_name}: {exc}", "error")
+            return redirect("/ops/send-console")
+
+        updated_account = find_account(get_userData(force_reload=True), unique_id) or {}
+        if _target_sent_today(updated_account, target_name):
+            flash(request, f"Retried {account.get('username', 'Account')} / {target_name} successfully.", "success")
+        else:
+            failure_entry = dict(updated_account.get("failure_queue") or {}).get(target_name) or {}
+            reason = str(failure_entry.get("reason") or "Retry did not confirm a successful send.")
+            flash(request, f"Retry did not succeed for {account.get('username', 'Account')} / {target_name}: {reason}", "error")
+        return redirect("/ops/send-console")
 
     @app.post("/config")
     async def save_runtime_config(request: Request):
@@ -493,9 +575,9 @@ def create_app():
 
         pid = run_task_now()
         if pid == -1:
-            flash(request, "Task launch failed. Check console logs for Missing Docker or protected log_file path.", "error")
+            flash(request, "Failed to start failed-target retry run. Check server logs for details.", "error")
         else:
-            flash(request, f"Triggered a background task run (pid {pid}).", "success")
+            flash(request, f"Triggered a failed-target retry run in the background (pid {pid}).", "success")
         return redirect("/")
 
     @app.post("/ops/proxy/refresh")
