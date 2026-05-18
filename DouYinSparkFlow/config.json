@@ -35,6 +35,5 @@
   "happyNewYear": {
     "enabled": true,
     "messageTemplate": "\r\n"
-  },
-  "useProtocolSender": false
+  }
 }

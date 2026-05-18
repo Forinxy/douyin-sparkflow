@@ -196,7 +196,6 @@ def run_task_now():
             cwd=cwd,
             env={
                 "SPARKFLOW_MANUAL_RUN": "1",
-                "SPARKFLOW_MANUAL_FAILED_ONLY": "1",
                 "PYTHONUNBUFFERED": "1",
             },
         )

@@ -575,9 +575,9 @@ def create_app():
 
         pid = run_task_now()
         if pid == -1:
-            flash(request, "Failed to start failed-target retry run. Check server logs for details.", "error")
+            flash(request, "Failed to start the full resend run. Check server logs for details.", "error")
         else:
-            flash(request, f"Triggered a failed-target retry run in the background (pid {pid}).", "success")
+            flash(request, f"Triggered a full resend run in the background (pid {pid}).", "success")
         return redirect("/")
 
     @app.post("/ops/proxy/refresh")

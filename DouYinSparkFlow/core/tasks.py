@@ -374,7 +374,18 @@ def _select_due_targets(user, send_window, now):
         microsecond=0,
     )
     if now < window_start or now > window_end:
-        return [], [], [(target, _scheduled_send_time(user, target, send_window, now)) for target in targets], []
+        already_sent = []
+        pending_targets = []
+        queued_failures = []
+        for target_name in targets:
+            if _target_sent_today(user, target_name, now):
+                already_sent.append(target_name)
+                continue
+            if _target_failed_today(user, target_name, now):
+                queued_failures.append(target_name)
+                continue
+            pending_targets.append((target_name, _scheduled_send_time(user, target_name, send_window, now)))
+        return [], already_sent, pending_targets, queued_failures
 
     due_targets = []
     already_sent = []
