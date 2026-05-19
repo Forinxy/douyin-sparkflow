@@ -72,14 +72,32 @@ def build_task_run_spec():
 def build_scheduled_task_command():
     if running_in_container():
         return (
-            "/bin/bash -lc 'container=$(docker ps --format \"{{.Names}}\" | "
+            "/bin/bash -lc 'timestamp=$(date \"+%F %T %Z\"); "
+            "echo \"[AUTO_TRIGGER] $timestamp scheduled send start\"; "
+            "container=$(docker ps --format \"{{.Names}}\" | "
             "grep -E \"^(douyin-web-hostfix|douyin-web)$\" | head -n 1); "
-            "[ -n \"$container\" ] && docker exec \"$container\" sh -lc "
+            "if [ -z \"$container\" ]; then "
+            "echo \"[AUTO_TRIGGER] $timestamp no matching container found\"; "
+            "exit 1; "
+            "fi; "
+            "echo \"[AUTO_TRIGGER] $timestamp container=$container\"; "
+            "docker exec \"$container\" sh -lc "
             "\"cd /app && python main.py --doTask\"'"
         )
     if compose_file_path():
-        return f"cd {compose_root()} && /usr/bin/docker compose run --rm task"
-    return f"cd {repo_root()} && {shlex.quote(sys.executable)} main.py --doTask"
+        compose_root_quoted = shlex.quote(str(compose_root()))
+        return (
+            "/bin/bash -lc "
+            f"'echo \"[AUTO_TRIGGER] $(date \"+%F %T %Z\") compose task start\"; "
+            f"cd {compose_root_quoted} && /usr/bin/docker compose run --rm task'"
+        )
+    repo_root_quoted = shlex.quote(str(repo_root()))
+    python_quoted = shlex.quote(sys.executable)
+    return (
+        "/bin/bash -lc "
+        f"'echo \"[AUTO_TRIGGER] $(date \"+%F %T %Z\") local task start\"; "
+        f"cd {repo_root_quoted} && {python_quoted} main.py --doTask'"
+    )
 
 
 def run_command(args, cwd=None, timeout=120, check=False):
