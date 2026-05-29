@@ -1,650 +1,99 @@
 {% extends "base.html" %}
 
 {% block nav_key %}dashboard{% endblock %}
-{% block title %}自动续火花控制台{% endblock %}
-{% block page_title %}自动续火花控制台{% endblock %}
-{% block page_subtitle %}多账号发送与运营管理{% endblock %}
+{% block title %}控制台概览 | 自动续火花{% endblock %}
+{% block page_title %}控制台概览{% endblock %}
+{% block page_subtitle %}发送状态、账号健康和关键运维入口{% endblock %}
 
 {% block topbar_actions %}
-<a class="ghost-button" href="/ops/send-console">✦ 发送控制台</a>
-<form method="post" action="/ops/run-unsent">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <button class="soft-button" type="submit">补发未成功目标</button>
-</form>
-<form method="post" action="/ops/run-now">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <button type="submit">✈ 补发全部对象</button>
-</form>
+<a class="ghost-button" href="/login-workspace">登录工作区</a>
+<a class="soft-button" href="/ops/send-console">发送控制台</a>
 {% endblock %}
 
 {% block content %}
 {% set enabled_accounts = accounts | selectattr("enabled", "equalto", true) | list %}
 {% set send_summary = ops.send_console.summary %}
+{% set pending_total = send_summary.today_pending_targets + send_summary.today_unprocessed_targets %}
 {% set proxy_rows = ops.containers | selectattr("Names", "equalto", "mihomo") | list %}
 
-<style>
-  .dashboard-shell {
-    display: grid;
-    gap: 22px;
-  }
-
-  .dashboard-overview {
-    display: grid;
-    gap: 18px;
-  }
-
-  .dashboard-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 360px;
-    gap: 22px;
-    align-items: start;
-  }
-
-  .dashboard-main,
-  .dashboard-side {
-    display: grid;
-    gap: 22px;
-  }
-
-  .dashboard-overview .stat-card {
-    min-height: 132px;
-  }
-
-  .dashboard-kpi-icon {
-    font-size: 26px;
-  }
-
-  .dashboard-kpi-subline {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    font-size: 13px;
-  }
-
-  .section-anchor-note {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-soft);
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .section-anchor-note::before {
-    content: "";
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--primary), #8eb0ff);
-    box-shadow: 0 0 0 4px rgba(47, 103, 255, 0.12);
-  }
-
-  .quick-panels {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px;
-  }
-
-  .quick-panel {
-    border: 1px solid rgba(227, 235, 245, 0.96);
-    border-radius: 18px;
-    background: linear-gradient(180deg, #ffffff, #fbfdff);
-    box-shadow: var(--shadow-soft);
-    padding: 18px 18px 20px;
-    display: grid;
-    gap: 16px;
-  }
-
-  .quick-panel__title {
-    font-size: 18px;
-    font-weight: 700;
-  }
-
-  .quick-panel__desc {
-    color: var(--text-soft);
-    font-size: 13px;
-    line-height: 1.7;
-  }
-
-  .inline-code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    border-radius: 999px;
-    padding: 3px 8px;
-    background: #f4f7fd;
-    color: #7284a2;
-  }
-
-  .action-stack {
-    display: grid;
-    gap: 12px;
-  }
-
-  .login-grid {
-    display: grid;
-    grid-template-columns: 320px minmax(0, 1fr) 300px;
-    gap: 18px;
-    align-items: start;
-  }
-
-  .login-box {
-    border: 1px solid rgba(227, 235, 245, 0.96);
-    border-radius: 18px;
-    background: linear-gradient(180deg, #ffffff, #fcfdff);
-    box-shadow: var(--shadow-soft);
-    padding: 18px;
-    min-height: 340px;
-  }
-
-  .login-box.warning {
-    background: linear-gradient(180deg, #fbfdff, #f3f7ff);
-  }
-
-  .login-box.highlight {
-    background: linear-gradient(180deg, #fcfffd, #f3fbf6);
-  }
-
-  .login-stepbar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 2px 2px 10px;
-  }
-
-  .step-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: var(--text-soft);
-    font-weight: 700;
-    white-space: nowrap;
-  }
-
-  .step-index {
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: #fff;
-    background: linear-gradient(180deg, #4e7dff, #2f67ff);
-    box-shadow: 0 10px 18px rgba(47, 103, 255, 0.18);
-    font-size: 12px;
-  }
-
-  .step-connector {
-    flex: 1;
-    min-width: 32px;
-    height: 2px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, rgba(47, 103, 255, 0.2), rgba(214, 223, 238, 0.85));
-  }
-
-  .login-lead {
-    color: #476180;
-    font-size: 14px;
-    line-height: 1.8;
-  }
-
-  .feature-list {
-    margin: 0;
-    padding-left: 18px;
-    color: var(--text);
-    line-height: 1.8;
-  }
-
-  .url-field {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-  }
-
-  .url-field input {
-    flex: 1;
-    background: #fbfcff;
-  }
-
-  .url-copy {
-    width: 46px;
-    padding: 11px 0;
-  }
-
-  .desktop-frame-wrap {
-    overflow: hidden;
-    border-radius: 18px;
-    border: 1px solid rgba(227, 235, 245, 0.96);
-    background: #0d1525;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
-  }
-
-  .desktop-frame {
-    width: 100%;
-    aspect-ratio: 16 / 10;
-    border: none;
-    display: block;
-    background: #0d1525;
-  }
-
-  .status-list {
-    display: grid;
-    gap: 12px;
-    margin: 8px 0 18px;
-  }
-
-  .status-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--text-soft);
-    font-size: 14px;
-    font-weight: 700;
-  }
-
-  .status-dot {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: #e3ebf7;
-    border: 1px solid #d5ddec;
-    box-shadow: inset 0 0 0 3px rgba(255,255,255,0.78);
-  }
-
-  .status-item.pending .status-dot {
-    background: #dce8ff;
-    border-color: #bdd1ff;
-  }
-
-  .status-item.success .status-dot {
-    background: #d2f5df;
-    border-color: #9dd3b2;
-  }
-
-  .status-item.error .status-dot {
-    background: #ffe1de;
-    border-color: #f3b5af;
-  }
-
-  .info-card {
-    border-radius: 16px;
-    border: 1px solid rgba(38, 176, 100, 0.16);
-    background: linear-gradient(180deg, rgba(38, 176, 100, 0.07), rgba(38, 176, 100, 0.03));
-    padding: 16px;
-    color: #335c47;
-    line-height: 1.7;
-    font-size: 13px;
-  }
-
-  .summary-table td:first-child strong {
-    display: inline-block;
-    margin-bottom: 4px;
-  }
-
-  .summary-table td:first-child span {
-    display: inline-block;
-    font-size: 12px;
-    color: var(--text-soft);
-  }
-
-  .account-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
-  }
-
-  .account-card {
-    border: 1px solid rgba(227, 235, 245, 0.96);
-    border-radius: 20px;
-    background: linear-gradient(180deg, #ffffff, #fbfdff);
-    box-shadow: var(--shadow-soft);
-    padding: 18px;
-    display: grid;
-    gap: 16px;
-  }
-
-  .account-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 14px;
-  }
-
-  .account-ident {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .avatar-photo {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: linear-gradient(180deg, #7ea9ff, #5888ff);
-    color: #fff;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    font-weight: 800;
-    box-shadow: 0 10px 18px rgba(47, 103, 255, 0.22);
-  }
-
-  .account-name {
-    font-size: 18px;
-    font-weight: 700;
-  }
-
-  .account-sub {
-    margin-top: 5px;
-    color: var(--text-soft);
-    font-size: 12px;
-  }
-
-  .metric-row {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-  }
-
-  .metric-box {
-    border-radius: 16px;
-    border: 1px solid rgba(227, 235, 245, 0.96);
-    background: #f9fbff;
-    padding: 12px 10px;
-    text-align: center;
-  }
-
-  .metric-box .label {
-    display: block;
-    color: var(--text-soft);
-    font-size: 12px;
-    margin-bottom: 6px;
-  }
-
-  .metric-box strong {
-    font-size: 17px;
-  }
-
-  .friend-picker {
-    border-radius: 18px;
-    border: 1px solid rgba(227, 235, 245, 0.96);
-    background: linear-gradient(180deg, #fbfdff, #f6f9ff);
-    padding: 14px;
-  }
-
-  .friend-picker-toolbar {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 12px;
-  }
-
-  .friend-picker-title {
-    font-size: 14px;
-    font-weight: 700;
-  }
-
-  .friend-picker-list {
-    max-height: 220px;
-    overflow: auto;
-    border-radius: 14px;
-    border: 1px solid rgba(227, 235, 245, 0.96);
-    background: #fff;
-    padding: 8px;
-    display: grid;
-    gap: 6px;
-  }
-
-  .friend-option {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    border-radius: 12px;
-    border: 1px solid transparent;
-    padding: 9px 10px;
-  }
-
-  .friend-option input[type="checkbox"] {
-    position: static;
-    inset: auto;
-    width: 16px;
-    height: 16px;
-    opacity: 1;
-    pointer-events: auto;
-    accent-color: var(--primary);
-    flex: 0 0 auto;
-  }
-
-  .friend-option.selected {
-    background: var(--primary-soft);
-    border-color: rgba(47, 103, 255, 0.12);
-  }
-
-  .friend-picker-empty {
-    padding: 18px 12px;
-    text-align: center;
-    color: var(--text-soft);
-  }
-
-  .dashboard-side .panel h2 {
-    font-size: 20px;
-  }
-
-  .settings-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .ops-card-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px;
-  }
-
-  .ops-card-grid .panel {
-    padding: 20px;
-  }
-
-  @media (max-width: 1480px) {
-    .quick-panels,
-    .ops-card-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .account-list {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  @media (max-width: 1280px) {
-    .login-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .settings-grid,
-    .metric-row {
-      grid-template-columns: 1fr;
-    }
-  }
-</style>
-
 <div class="dashboard-shell">
-  <section class="dashboard-overview">
-    <div class="section-anchor-note">首页总览 · 当前系统状态与发送概况</div>
+  <section class="stats-grid" aria-label="今日概览">
+    <article class="stat-card">
+      <div class="stat-meta">
+        <span class="stat-label">启用账号</span>
+        <strong class="stat-value">{{ enabled_accounts|length }}</strong>
+        <span class="stat-help">总账号 {{ accounts|length }}</span>
+      </div>
+      <div class="stat-icon blue">A</div>
+    </article>
 
-    <div class="stats-grid">
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">启用账号</span>
-          <strong class="stat-value">{{ enabled_accounts|length }}</strong>
-          <div class="dashboard-kpi-subline">
-            <span class="muted">总账号 {{ accounts|length }}</span>
-          </div>
-        </div>
-        <div class="stat-icon blue"><span class="dashboard-kpi-icon">👥</span></div>
-      </article>
+    <article class="stat-card">
+      <div class="stat-meta">
+        <span class="stat-label">今日成功</span>
+        <strong class="stat-value"
+          >{{ send_summary.today_sent_targets }}</strong
+        >
+        <span class="stat-help">浏览器确认发送成功</span>
+      </div>
+      <div
+        class="stat-icon {% if send_summary.today_sent_targets > 0 %}green{% else %}gray{% endif %}"
+      >
+        ✓
+      </div>
+    </article>
 
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">今日成功目标</span>
-          <strong class="stat-value">{{ send_summary.today_sent_targets }}</strong>
-          <div class="dashboard-kpi-subline">
-            <span class="stat-help positive">成功结果来自浏览器真实发送确认</span>
-          </div>
-        </div>
-        <div class="stat-icon green"><span class="dashboard-kpi-icon">🎯</span></div>
-      </article>
+    <article class="stat-card">
+      <div class="stat-meta">
+        <span class="stat-label">失败待补发</span>
+        <strong class="stat-value"
+          >{{ send_summary.today_failed_targets }}</strong
+        >
+        <span class="stat-help">进入重试队列</span>
+      </div>
+      <div
+        class="stat-icon {% if send_summary.today_failed_targets > 0 %}red{% else %}gray{% endif %}"
+      >
+        !
+      </div>
+    </article>
 
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">失败待补发</span>
-          <strong class="stat-value">{{ send_summary.today_failed_targets }}</strong>
-          <div class="dashboard-kpi-subline">
-            <span class="stat-help negative">失败会进入补发与重试队列</span>
-          </div>
-        </div>
-        <div class="stat-icon red"><span class="dashboard-kpi-icon">⚠</span></div>
-      </article>
+    <article class="stat-card">
+      <div class="stat-meta">
+        <span class="stat-label">待发送</span>
+        <strong class="stat-value"
+          >{{ send_summary.today_pending_targets }}</strong
+        >
+        <span class="stat-help">{{ ops.daily_schedule or "未配置窗口" }}</span>
+      </div>
+      <div class="stat-icon orange">◔</div>
+    </article>
 
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">待发送 / 未处理</span>
-          <strong class="stat-value">{{ send_summary.today_pending_targets + send_summary.today_unprocessed_targets }}</strong>
-          <div class="dashboard-kpi-subline">
-            <span class="muted">{{ ops.daily_schedule or "未配置发送窗口" }}</span>
-          </div>
-        </div>
-        <div class="stat-icon orange"><span class="dashboard-kpi-icon">◔</span></div>
-      </article>
-    </div>
+    <article class="stat-card">
+      <div class="stat-meta">
+        <span class="stat-label">未处理</span>
+        <strong class="stat-value"
+          >{{ send_summary.today_unprocessed_targets }}</strong
+        >
+        <span class="stat-help">等待后续调度</span>
+      </div>
+      <div class="stat-icon gray">…</div>
+    </article>
   </section>
 
-  <div class="dashboard-layout">
-    <div class="dashboard-main">
-      <section class="panel" id="interactive-login-section">
+  <div class="layout-grid">
+    <div class="stack">
+      <section class="panel">
         <div class="section-title-row">
           <div>
-            <h2>交互式登录浏览器</h2>
-            <p class="muted compact">直接在网页中操作远端浏览器完成扫码、验证码与创作者中心登录，登录完成后可一键保存当前账号。</p>
+            <h2>今日发送摘要</h2>
+            <p class="muted compact">
+              按账号展示今日发送、失败和待处理状态，详细明细在发送控制台查看。
+            </p>
           </div>
+          <a class="link-button" href="/ops/send-console">查看明细</a>
         </div>
 
-        <div class="login-stepbar">
-          <div class="step-item"><span class="step-index">1</span><span>打开浏览器</span></div>
-          <div class="step-connector"></div>
-          <div class="step-item"><span class="step-index">2</span><span>扫码与验证</span></div>
-          <div class="step-connector"></div>
-          <div class="step-item"><span class="step-index">3</span><span>进入创作者中心</span></div>
-          <div class="step-connector"></div>
-          <div class="step-item"><span class="step-index">4</span><span>保存登录账号</span></div>
-        </div>
-
-        <div class="login-grid">
-          <div class="login-box warning">
-            <div class="action-stack">
-              <div class="status-line">
-                <span class="pill soft">推荐模式</span>
-                <span class="pill">noVNC :8788</span>
-              </div>
-              <div class="login-lead">通过 noVNC 打开远端浏览器，手动完成抖音登录，再把当前登录态同步回后台账号系统。</div>
-              <ul class="feature-list">
-                <li>支持扫码、验证码、短信验证等人工步骤</li>
-                <li>登录成功后可直接保存到新账号或覆盖已有账号</li>
-                <li>适合登录态失效、环境异常或批量修复前的人工接管</li>
-              </ul>
-              <div class="button-row">
-                <button type="button" class="success-button login-desktop-open" data-relogin-unique-id="">打开交互式登录浏览器 ↗</button>
-                <button type="button" class="ghost-button login-desktop-reset">重置登录桌面 ↻</button>
-                <button type="button" class="soft-button login-desktop-save" data-relogin-unique-id="">保存当前登录账号</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="login-box">
-            <div class="stack-form">
-              <strong>浏览器工作区</strong>
-              <div class="url-field">
-                <input id="desktop-public-url" type="text" value="{{ login_desktop_public_url }}" readonly>
-                <button type="button" class="ghost-button url-copy" id="copy-public-url">⧉</button>
-              </div>
-              <div class="desktop-frame-wrap">
-                <iframe class="desktop-frame" src="{{ login_desktop_public_url }}" title="交互式登录浏览器工作区" loading="lazy"></iframe>
-              </div>
-            </div>
-          </div>
-
-          <div class="login-box highlight"
-               id="login-desktop-controls"
-               data-public-url="{{ login_desktop_public_url }}"
-               data-csrf-token="{{ csrf_token }}">
-            <div class="section-title-row" style="margin-bottom: 10px;">
-              <div>
-                <h3>登录状态</h3>
-                <p class="muted compact">持续轮询远端交互式桌面状态</p>
-              </div>
-            </div>
-            <div class="status-list">
-              <div class="status-item" id="desktop-status-checking"><span class="status-dot"></span><span>检查中</span></div>
-              <div class="status-item pending" id="desktop-status-pending"><span class="status-dot"></span><span>待登录</span></div>
-              <div class="status-item success" id="desktop-status-success"><span class="status-dot"></span><span>已登录</span></div>
-              <div class="status-item error" id="desktop-status-error"><span class="status-dot"></span><span>异常</span></div>
-            </div>
-            <div class="info-card">
-              <div class="status-line" style="margin-bottom: 10px;">
-                <span class="pill" id="login-desktop-runtime-state">检查中</span>
-              </div>
-              <div id="login-desktop-status-text">正在检查交互式登录桌面状态。</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel" id="send-console-summary">
-        <div class="section-title-row">
-          <div>
-            <h2>发送控制台摘要</h2>
-            <p class="muted compact">查看每个账号今天的发送状态分布，并快速进入发送控制台做批量补发或针对性重试。</p>
-          </div>
-          <a class="link-button" href="/ops/send-console">打开发送控制台</a>
-        </div>
-
-        <div class="stats-grid">
-          <article class="stat-card">
-            <div class="stat-meta">
-              <span class="stat-label">启用账号</span>
-              <strong class="stat-value">{{ send_summary.enabled_accounts }}</strong>
-            </div>
-            <div class="stat-icon blue">A</div>
-          </article>
-          <article class="stat-card">
-            <div class="stat-meta">
-              <span class="stat-label">今日成功目标</span>
-              <strong class="stat-value">{{ send_summary.today_sent_targets }}</strong>
-            </div>
-            <div class="stat-icon green">✓</div>
-          </article>
-          <article class="stat-card">
-            <div class="stat-meta">
-              <span class="stat-label">失败待补发</span>
-              <strong class="stat-value">{{ send_summary.today_failed_targets }}</strong>
-            </div>
-            <div class="stat-icon red">!</div>
-          </article>
-          <article class="stat-card">
-            <div class="stat-meta">
-              <span class="stat-label">待发送 / 未处理</span>
-              <strong class="stat-value">{{ send_summary.today_pending_targets + send_summary.today_unprocessed_targets }}</strong>
-            </div>
-            <div class="stat-icon orange">…</div>
-          </article>
-        </div>
-
-        <div class="table-shell summary-table" style="margin-top: 18px;">
+        <div class="table-shell">
           <table>
             <thead>
               <tr>
@@ -660,8 +109,8 @@
               {% for row in ops.send_console.accounts %}
               <tr>
                 <td>
-                  <strong>{{ row.username }}</strong><br>
-                  <span>{{ row.unique_id }}</span>
+                  <strong>{{ row.username }}</strong><br />
+                  <span class="muted">{{ row.unique_id }}</span>
                 </td>
                 <td>{{ row.sent_targets|length }}</td>
                 <td>{{ row.failed_targets|length }}</td>
@@ -670,660 +119,145 @@
                 <td>{{ row.last_failure_reason or "-" }}</td>
               </tr>
               {% else %}
-              <tr><td colspan="6">当前没有发送摘要数据。</td></tr>
+              <tr>
+                <td colspan="6">当前没有发送摘要数据。</td>
+              </tr>
               {% endfor %}
             </tbody>
           </table>
         </div>
       </section>
 
-      <section class="panel" id="account-management">
+      <section class="panel">
         <div class="section-title-row">
           <div>
-            <h2>账号管理</h2>
-            <p class="muted compact">集中管理账号开关、目标好友、好友缓存、登录同步和删除操作。布局与发送控制台保持同一套卡片系统。</p>
+            <h2>账号健康</h2>
+            <p class="muted compact">
+              快速确认账号启用状态、目标好友数量和登录态缓存规模。
+            </p>
           </div>
+          <a class="ghost-button" href="/accounts">管理账号</a>
         </div>
 
         {% if accounts %}
-        <div class="account-list">
+        <div class="content-grid">
           {% for account in accounts %}
-          <article class="account-card">
+          <article class="quick-card">
             <div class="account-head">
               <div class="account-ident">
-                <div class="avatar-photo">{{ account.username[:1] if account.username else "A" }}</div>
+                <div class="avatar-photo">
+                  {{ account.username[:1] if account.username else "A" }}
+                </div>
                 <div>
                   <div class="account-name">{{ account.username }}</div>
-                  <div class="account-sub">unique_id: {{ account.unique_id }}</div>
+                  <div class="account-sub">
+                    unique_id: {{ account.unique_id }}
+                  </div>
                 </div>
               </div>
-              <span class="status-chip {% if account.enabled|default(true) %}success{% else %}warning{% endif %}">
-                {% if account.enabled|default(true) %}已启用{% else %}已停用{% endif %}
+              <span
+                class="status-chip {% if account.enabled|default(true) %}success{% else %}warning{% endif %}"
+              >
+                {% if account.enabled|default(true) %}已启用{% else %}已停用{%
+                endif %}
               </span>
             </div>
-
-            <div class="metric-row">
+            <div class="account-metrics">
               <div class="metric-box">
-                <span class="label">Cookies</span>
-                <strong>{{ account.cookies|length }}</strong>
-              </div>
-              <div class="metric-box">
-                <span class="label">目标好友</span>
-                <strong>{{ account.targets|length }}</strong>
+                <span class="label">目标</span
+                ><strong>{{ account.targets|length }}</strong>
               </div>
               <div class="metric-box">
-                <span class="label">好友缓存</span>
-                <strong>{{ account.friends_cache|default([], true)|length }}</strong>
+                <span class="label">好友缓存</span
+                ><strong
+                  >{{ account.friends_cache|default([], true)|length }}</strong
+                >
               </div>
-            </div>
-
-            <form method="post" action="/accounts/{{ account.unique_id }}/update" class="stack-form">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <label>
-                <span>显示名</span>
-                <input type="text" name="username" value="{{ account.username }}">
-              </label>
-              <label class="check-row">
-                <input type="checkbox" name="enabled" {% if account.enabled|default(true) %}checked{% endif %}>
-                <span>启用自动续火花</span>
-              </label>
-              <label>
-                <span>目标好友（每行一个，可手动编辑或从下方勾选）</span>
-                <textarea class="targets-textarea" name="targets" rows="5">{{ account.targets|default([], true)|join('\n') }}</textarea>
-              </label>
-              <p class="muted compact">未在好友缓存中的昵称也会保留在目标列表里。</p>
-
-              <div class="friend-picker"
-                   data-account-id="{{ account.unique_id }}"
-                   data-refresh-url="/accounts/{{ account.unique_id }}/friends/refresh"
-                   data-csrf-token="{{ csrf_token }}"
-                   data-updated-at="{{ account.friends_cache_updated_at|default('', true) }}">
-                <div class="friend-picker-toolbar">
-                  <div>
-                    <span class="friend-picker-title">好友选择器</span>
-                    <p class="muted compact friend-picker-status">
-                      {% if account.friends_cache_updated_at %}
-                      上次刷新：{{ account.friends_cache_updated_at }}
-                      {% else %}
-                      还没有读取好友列表
-                      {% endif %}
-                    </p>
-                  </div>
-                  <button type="button" class="ghost-button friend-refresh-button">刷新好友列表</button>
-                </div>
-
-                <label class="stack-form" style="gap: 8px;">
-                  <span>搜索好友</span>
-                  <input type="search" class="friend-search-input" placeholder="输入昵称筛选好友">
-                </label>
-
-                <p class="friend-picker-current-targets muted compact">
-                  <strong>当前目标好友：</strong>
-                  <span>{{ account.targets|join('、') if account.targets else '未选择' }}</span>
-                </p>
-
-                <p class="friend-picker-summary muted compact">已选 0 人</p>
-                <div class="friend-selected-inputs"></div>
-                <div class="friend-picker-list"></div>
-
-                <script type="application/json" id="friends-cache-{{ account.unique_id }}">{{ account.friends_cache|default([], true)|tojson }}</script>
-                <script type="application/json" id="selected-targets-{{ account.unique_id }}">{{ account.targets|default([], true)|tojson }}</script>
+              <div class="metric-box">
+                <span class="label">Cookies</span
+                ><strong>{{ account.cookies|length }}</strong>
               </div>
-
-              <button type="submit">保存账号</button>
-            </form>
-
-            <div class="button-row">
-              <button type="button" class="ghost-button login-desktop-open" data-relogin-unique-id="{{ account.unique_id }}" data-account-name="{{ account.username }}">打开登录浏览器</button>
-              <button type="button" class="ghost-button login-desktop-save" data-relogin-unique-id="{{ account.unique_id }}" data-account-name="{{ account.username }}">保存当前浏览器登录</button>
-              <form method="post" action="/accounts/{{ account.unique_id }}/toggle-enabled">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="{% if account.enabled|default(true) %}soft-button{% else %}success-button{% endif %}" type="submit">
-                  {% if account.enabled|default(true) %}停用自动续火花{% else %}启用自动续火花{% endif %}
-                </button>
-              </form>
-              <form method="post" action="/accounts/{{ account.unique_id }}/delete">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="danger-button" type="submit">删除账号</button>
-              </form>
             </div>
           </article>
           {% endfor %}
         </div>
         {% else %}
-        <div class="empty-state">当前没有账号。先通过交互式登录浏览器登录并保存账号。</div>
+        <div class="empty-state">
+          还没有账号。前往登录工作区完成扫码登录并保存账号。
+        </div>
         {% endif %}
       </section>
-
-      <div class="ops-card-grid">
-        <section class="panel">
-          <h2>容器状态</h2>
-          <div class="table-shell scrollable" style="margin-top: 16px;">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Image</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for row in ops.containers %}
-                <tr>
-                  <td>{{ row.Names }}</td>
-                  <td><span class="pill {% if 'Up' in row.Status %}soft{% else %}warning{% endif %}">{{ row.Status }}</span></td>
-                  <td>{{ row.Image }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="3">当前没有可见容器状态。</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="panel">
-          <h2>Cron / 调度</h2>
-          <pre class="code-block" style="margin-top: 16px;">{{ ops.crontab or "当前没有 crontab 任务。" }}</pre>
-        </section>
-
-        <section class="panel">
-          <h2>日志预览</h2>
-          <pre class="code-block light" style="margin-top: 16px; min-height: 260px;">{{ ops.log_tail or "暂无日志" }}</pre>
-        </section>
-      </div>
     </div>
 
-    <aside class="dashboard-side">
-      <section class="panel" id="config-panel">
+    <aside class="stack">
+      <section class="panel">
         <div class="section-title-row">
           <div>
-            <h2>运行配置</h2>
-            <p class="muted compact">消息模板、随机策略、时间间隔等核心发送参数。</p>
+            <h2>关键操作</h2>
+            <p class="muted compact">
+              常用入口和高风险动作分开处理，避免误触。
+            </p>
           </div>
         </div>
-        <form method="post" action="/config" class="stack-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label>
-            <span>固定消息模板</span>
-            <input type="text" name="messageTemplate" value="{{ runtime_config.messageTemplate }}">
-          </label>
-          <label>
-            <span>消息变体（每行一个）</span>
-            <textarea name="messageVariants" rows="5">{{ runtime_config.sendStrategy.messageVariants|join('\n') }}</textarea>
-          </label>
-          <label>
-            <span>是否随机打乱目标顺序</span>
-            <select name="shuffleTargets">
-              <option value="on" {% if runtime_config.sendStrategy.shuffleTargets %}selected{% endif %}>是</option>
-              <option value="" {% if not runtime_config.sendStrategy.shuffleTargets %}selected{% endif %}>否</option>
-            </select>
-          </label>
-          <div class="settings-grid">
-            <label>
-              <span>消息最小间隔（秒）</span>
-              <input type="number" name="messageIntervalSecondsMin" min="0" value="{{ runtime_config.sendStrategy.messageIntervalSecondsMin }}">
-            </label>
-            <label>
-              <span>消息最大间隔（秒）</span>
-              <input type="number" name="messageIntervalSecondsMax" min="0" value="{{ runtime_config.sendStrategy.messageIntervalSecondsMax }}">
-            </label>
-          </div>
-          <button type="submit">保存运行配置</button>
-        </form>
-      </section>
-
-      <section class="panel" id="ops-panel">
-        <div class="section-title-row">
-          <div>
-            <h2>运维操作</h2>
-            <p class="muted compact">立即补发、刷新代理、查看日志和调整自动发送窗口。</p>
-          </div>
-        </div>
-        <div class="button-grid">
+        <div class="link-list">
+          <a class="link-button" href="/login-workspace">打开登录工作区</a>
+          <a class="ghost-button" href="/accounts">账号与目标管理</a>
+          <a class="ghost-button" href="/settings">运行与系统设置</a>
           <form method="post" action="/ops/run-unsent">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
             <button class="soft-button" type="submit">补发未成功目标</button>
           </form>
-          <form method="post" action="/ops/run-now">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button type="submit">补发全部对象</button>
+          <form
+            method="post"
+            action="/ops/run-now"
+            data-confirm="补发全部对象会对所有启用账号的全部目标重新发送一遍，确认继续？"
+          >
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+            <button class="danger-button" type="submit">补发全部对象</button>
           </form>
-          <form method="post" action="/ops/proxy/refresh">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="ghost-button" type="submit">刷新代理订阅</button>
-          </form>
-          <form method="post" action="/ops/proxy/restart">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="danger-button" type="submit">重启代理容器</button>
-          </form>
-          <a class="link-button" href="/ops/logs">查看详细日志</a>
-        </div>
-
-        <form method="post" action="/ops/schedule" class="stack-form" style="margin-top: 18px;">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <label>
-            <span>发送窗口（北京时间，例如 10:00-18:00/10m）</span>
-            <input type="text" name="daily_schedule" value="{{ ops.daily_schedule }}" placeholder="10:00-18:00/10m">
-          </label>
-          <button type="submit" class="ghost-button">更新发送窗口</button>
-        </form>
-
-        <div class="stack-form" style="margin-top: 18px;">
-          <label>
-            <span>Compose 根目录</span>
-            <input type="text" value="{{ ops.compose_root }}" readonly>
-          </label>
-          <label>
-            <span>Compose 文件路径</span>
-            <input type="text" value="{{ ops.compose_file or '未检测到' }}" readonly>
-          </label>
         </div>
       </section>
 
-      <section class="panel" id="settings-panel">
+      <section class="panel">
         <div class="section-title-row">
           <div>
-            <h2>面板与服务设置</h2>
-            <p class="muted compact">服务连接、日志路径、交互式登录 API 与管理员配置。</p>
+            <h2>服务状态</h2>
+            <p class="muted compact">代理、调度和发送窗口的轻量巡检。</p>
           </div>
         </div>
-        <form method="post" action="/settings" class="stack-form">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <div class="settings-grid">
-            <label>
-              <span>服务器 Host</span>
-              <input type="text" name="server_host" value="{{ app_settings.server_host }}">
-            </label>
-            <label>
-              <span>服务器用户名</span>
-              <input type="text" name="server_username" value="{{ app_settings.server_username }}">
-            </label>
-            <label>
-              <span>服务器密码</span>
-              <input type="password" name="server_password" value="{{ app_settings.server_password }}">
-            </label>
-            <label>
-              <span>Compose 根目录</span>
-              <input type="text" name="compose_root" value="{{ app_settings.compose_root }}">
-            </label>
-            <label>
-              <span>任务日志文件</span>
-              <input type="text" name="ops_log_file" value="{{ app_settings.ops_log_file }}">
-            </label>
-            <label>
-              <span>代理刷新脚本</span>
-              <input type="text" name="proxy_refresh_script" value="{{ app_settings.proxy_refresh_script }}">
-            </label>
-            <label>
-              <span>交互式登录桌面 API 地址</span>
-              <input type="text" name="login_desktop_api_url" value="{{ app_settings.login_desktop_api_url }}">
-            </label>
-            <label>
-              <span>Web UI 端口</span>
-              <input type="number" min="1" max="65535" name="ui_port" value="{{ app_settings.ui_port }}">
-            </label>
-            <label>
-              <span>修改管理员密码</span>
-              <input type="password" name="new_password" placeholder="留空表示不修改">
-            </label>
-            <label>
-              <span>确认新密码</span>
-              <input type="password" name="confirm_password" placeholder="再次输入新密码">
-            </label>
+        <div class="summary-list">
+          <div class="summary-row">
+            <div>
+              <strong>代理容器</strong>
+              <span
+                >{{ proxy_rows[0].Status if proxy_rows else "未检测到 mihomo"
+                }}</span
+              >
+            </div>
+            <span
+              class="status-chip {% if proxy_rows and 'Up' in proxy_rows[0].Status %}success{% else %}warning{% endif %}"
+            >
+              {% if proxy_rows and 'Up' in proxy_rows[0].Status %}运行中{% else
+              %}需检查{% endif %}
+            </span>
           </div>
-          <div style="display:flex; justify-content:flex-end;">
-            <button type="submit">保存设置</button>
+          <div class="summary-row">
+            <div>
+              <strong>发送窗口</strong>
+              <span>{{ ops.daily_schedule or "未配置" }}</span>
+            </div>
+            <a class="soft-button" href="/settings">调整</a>
           </div>
-        </form>
+          <div class="summary-row">
+            <div>
+              <strong>待处理目标</strong>
+              <span>{{ pending_total }} 个目标等待发送或调度</span>
+            </div>
+            <a class="ghost-button" href="/ops/send-console">查看</a>
+          </div>
+        </div>
       </section>
     </aside>
   </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-  (() => {
-    const runNowForms = document.querySelectorAll('form[action="/ops/run-now"]');
-    if (!runNowForms.length) return;
-    runNowForms.forEach((form) => {
-      const button = form.querySelector('button[type="submit"]');
-      if (button) button.textContent = "补发全部对象";
-      if (!form.nextElementSibling || !form.nextElementSibling.classList.contains("resend-note")) {
-        const note = document.createElement("p");
-        note.className = "muted compact resend-note";
-        note.textContent = "“补发全部对象”会对所有启用账号的全部目标重新发送一遍，并按最终成功 / 失败结果更新控制台摘要。";
-        form.insertAdjacentElement("afterend", note);
-      }
-    });
-  })();
-
-  (() => {
-    const root = document.getElementById("login-desktop-controls");
-    if (!root) return;
-
-    const csrfToken = root.dataset.csrfToken || "";
-    const publicUrl = root.dataset.publicUrl || "";
-    const runtimeStateEl = document.getElementById("login-desktop-runtime-state");
-    const statusTextEl = document.getElementById("login-desktop-status-text");
-    const openButtons = document.querySelectorAll(".login-desktop-open");
-    const saveButtons = document.querySelectorAll(".login-desktop-save");
-    const resetButtons = document.querySelectorAll(".login-desktop-reset");
-    const copyPublicUrlButton = document.getElementById("copy-public-url");
-    const statusMap = {
-      checking: document.getElementById("desktop-status-checking"),
-      pending: document.getElementById("desktop-status-pending"),
-      success: document.getElementById("desktop-status-success"),
-      error: document.getElementById("desktop-status-error"),
-    };
-
-    const setVisualStatus = (state) => {
-      Object.values(statusMap).forEach((node) => {
-        if (!node) return;
-        node.style.opacity = "0.42";
-      });
-      if (statusMap[state]) {
-        statusMap[state].style.opacity = "1";
-      }
-    };
-
-    const setStatus = (text, tone = "", state = "checking") => {
-      if (statusTextEl) statusTextEl.textContent = text;
-      if (runtimeStateEl) runtimeStateEl.className = `pill${tone ? ` ${tone}` : ""}`;
-      setVisualStatus(state);
-    };
-
-    const postForm = async (url, payload = {}) => {
-      const formData = new FormData();
-      formData.set("csrf_token", csrfToken);
-      Object.entries(payload).forEach(([key, value]) => {
-        formData.set(key, String(value ?? ""));
-      });
-      const response = await fetch(url, {
-        method: "POST",
-        body: formData,
-        credentials: "same-origin",
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.ok === false) {
-        throw new Error(data.error || `request failed: ${response.status}`);
-      }
-      return data;
-    };
-
-    const openDesktopWindow = () => {
-      const popup = window.open(publicUrl, "_blank");
-      if (!popup) {
-        setStatus("浏览器阻止了交互式登录窗口，请允许弹窗后再试。", "danger", "error");
-        return false;
-      }
-      return true;
-    };
-
-    const pollStatus = async () => {
-      try {
-        const response = await fetch("/login-desktop/status", { credentials: "same-origin" });
-        const data = await response.json();
-        if (!response.ok || data.ok === false) {
-          if (runtimeStateEl) runtimeStateEl.textContent = "不可用";
-          setStatus(data.error || "交互式登录桌面不可用", "warning", "error");
-          return;
-        }
-        if (runtimeStateEl) runtimeStateEl.textContent = data.logged_in ? "已登录" : "待登录";
-        if (data.logged_in) {
-          setStatus(`当前浏览器已登录：${data.username}（${data.unique_id}）`, "soft", "success");
-        } else {
-          setStatus("当前浏览器尚未登录，可打开交互式登录浏览器开始人工登录。", "", "pending");
-        }
-      } catch (error) {
-        if (runtimeStateEl) runtimeStateEl.textContent = "异常";
-        setStatus(`交互式登录桌面状态检查失败：${error.message}`, "danger", "error");
-      }
-    };
-
-    if (copyPublicUrlButton) {
-      copyPublicUrlButton.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(publicUrl);
-          setStatus("交互式登录地址已复制，可在新标签页打开。", "soft", "pending");
-        } catch (error) {
-          setStatus(`复制失败：${error.message}`, "warning", "error");
-        }
-      });
-    }
-
-    openButtons.forEach((button) => {
-      button.addEventListener("click", async () => {
-        const reloginUniqueId = String(button.dataset.reloginUniqueId || "").trim();
-        const accountName = String(button.dataset.accountName || "").trim();
-        try {
-          await postForm("/login-desktop/open");
-          openDesktopWindow();
-          if (reloginUniqueId) {
-            setStatus(`已打开交互式登录浏览器，请使用账号 ${accountName || reloginUniqueId} 完成登录。`, "", "pending");
-          } else {
-            setStatus("已打开交互式登录浏览器，请在远端浏览器中完成抖音创作者中心登录。", "", "pending");
-          }
-        } catch (error) {
-          setStatus(`打开交互式登录浏览器失败：${error.message}`, "danger", "error");
-        }
-      });
-    });
-
-    saveButtons.forEach((button) => {
-      button.addEventListener("click", async () => {
-        const reloginUniqueId = String(button.dataset.reloginUniqueId || "").trim();
-        const accountName = String(button.dataset.accountName || "").trim();
-        try {
-          const data = await postForm("/login-desktop/save", {
-            relogin_unique_id: reloginUniqueId,
-          });
-          setStatus(
-            reloginUniqueId
-              ? `已把当前浏览器登录保存到账号：${accountName || reloginUniqueId}`
-              : `已保存当前登录账号：${data.account?.username || ""}`,
-            "soft",
-            "success",
-          );
-          window.setTimeout(() => window.location.reload(), 800);
-        } catch (error) {
-          setStatus(`保存当前登录账号失败：${error.message}`, "danger", "error");
-        }
-      });
-    });
-
-    resetButtons.forEach((button) => {
-      button.addEventListener("click", async () => {
-        try {
-          await postForm("/login-desktop/reset");
-          setStatus("交互式登录桌面已重置，正在重新初始化浏览器。", "warning", "checking");
-          await pollStatus();
-        } catch (error) {
-          setStatus(`重置交互式登录桌面失败：${error.message}`, "danger", "error");
-        }
-      });
-    });
-
-    setVisualStatus("checking");
-    pollStatus();
-    window.setInterval(pollStatus, 5000);
-  })();
-
-  (() => {
-    const pickers = document.querySelectorAll(".friend-picker");
-    if (!pickers.length) return;
-
-    const parseJsonScript = (id) => {
-      const el = document.getElementById(id);
-      if (!el) return [];
-      try {
-        return JSON.parse(el.textContent || "[]");
-      } catch (error) {
-        console.error("Failed to parse friend picker JSON", id, error);
-        return [];
-      }
-    };
-
-    const escapeHtml = (value) =>
-      value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-
-    pickers.forEach((picker) => {
-      const accountId = picker.dataset.accountId;
-      const refreshUrl = picker.dataset.refreshUrl;
-      const csrfToken = picker.dataset.csrfToken;
-      const searchInput = picker.querySelector(".friend-search-input");
-      const refreshButton = picker.querySelector(".friend-refresh-button");
-      const listEl = picker.querySelector(".friend-picker-list");
-      const summaryEl = picker.querySelector(".friend-picker-summary");
-      const statusEl = picker.querySelector(".friend-picker-status");
-      const hiddenInputsEl = picker.querySelector(".friend-selected-inputs");
-      const formEl = picker.closest("form");
-      const targetsTextarea = formEl?.querySelector(".targets-textarea");
-      const currentTargetsEl = picker.querySelector(".friend-picker-current-targets span");
-
-      let friends = parseJsonScript(`friends-cache-${accountId}`);
-      let selected = new Set(parseJsonScript(`selected-targets-${accountId}`));
-
-      const combinedFriends = () => {
-        const merged = [];
-        const seen = new Set();
-        [...selected, ...friends].forEach((name) => {
-          if (!name || seen.has(name)) return;
-          seen.add(name);
-          merged.push(name);
-        });
-        return merged;
-      };
-
-      const splitTargetText = (value) => {
-        const seen = new Set();
-        return String(value || "")
-          .replaceAll(",", "\n")
-          .split(/\r?\n/)
-          .map((name) => name.trim())
-          .filter((name) => {
-            if (!name || seen.has(name)) return false;
-            seen.add(name);
-            return true;
-          });
-      };
-
-      const syncTextareaFromSelected = () => {
-        if (targetsTextarea) {
-          targetsTextarea.value = [...selected].join("\n");
-        }
-      };
-
-      const syncSelectedFromTextarea = () => {
-        if (targetsTextarea) {
-          selected = new Set(splitTargetText(targetsTextarea.value));
-        }
-      };
-
-      const renderHiddenInputs = () => {
-        hiddenInputsEl.innerHTML = "";
-        [...selected].forEach((name) => {
-          const input = document.createElement("input");
-          input.type = "hidden";
-          input.name = "targets";
-          input.value = name;
-          hiddenInputsEl.appendChild(input);
-        });
-      };
-
-      const updateSummary = () => {
-        summaryEl.textContent = `已选 ${selected.size} 人`;
-        if (currentTargetsEl) {
-          currentTargetsEl.textContent = selected.size ? [...selected].join("、") : "未选择";
-        }
-      };
-
-      const renderList = () => {
-        const query = (searchInput.value || "").trim().toLowerCase();
-        const allNames = combinedFriends();
-        const displayNames = allNames.filter((name) => name.toLowerCase().includes(query));
-        renderHiddenInputs();
-        updateSummary();
-
-        if (!allNames.length) {
-          listEl.innerHTML = '<div class="friend-picker-empty">点击“刷新好友列表”后再勾选目标好友。</div>';
-          return;
-        }
-
-        if (!displayNames.length) {
-          listEl.innerHTML = '<div class="friend-picker-empty">没有匹配的好友。</div>';
-          return;
-        }
-
-        listEl.innerHTML = displayNames.map((name) => `
-          <label class="friend-option ${selected.has(name) ? "selected" : ""}">
-            <span>${escapeHtml(name)}</span>
-            <input type="checkbox" value="${escapeHtml(name)}" ${selected.has(name) ? "checked" : ""}>
-          </label>
-        `).join("");
-
-        listEl.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
-          checkbox.addEventListener("change", () => {
-            const option = checkbox.closest(".friend-option");
-            const value = checkbox.value;
-            if (checkbox.checked) {
-              selected.add(value);
-              option?.classList.add("selected");
-            } else {
-              selected.delete(value);
-              option?.classList.remove("selected");
-            }
-            syncTextareaFromSelected();
-            renderHiddenInputs();
-            updateSummary();
-          });
-        });
-      };
-
-      refreshButton.addEventListener("click", async () => {
-        refreshButton.disabled = true;
-        const originalText = refreshButton.textContent;
-        refreshButton.textContent = "刷新中...";
-        statusEl.textContent = "正在实时读取好友列表…";
-        try {
-          const formData = new FormData();
-          formData.set("csrf_token", csrfToken);
-          const response = await fetch(refreshUrl, {
-            method: "POST",
-            body: formData,
-            credentials: "same-origin",
-          });
-          const payload = await response.json();
-          if (!response.ok) {
-            throw new Error(payload.error || "刷新好友列表失败");
-          }
-          friends = Array.isArray(payload.friends) ? payload.friends : [];
-          statusEl.textContent = payload.message || `已刷新 ${friends.length} 个好友`;
-          renderList();
-        } catch (error) {
-          statusEl.textContent = error.message || "刷新好友列表失败";
-        } finally {
-          refreshButton.disabled = false;
-          refreshButton.textContent = originalText;
-        }
-      });
-
-      searchInput.addEventListener("input", renderList);
-      if (targetsTextarea) {
-        targetsTextarea.addEventListener("input", () => {
-          syncSelectedFromTextarea();
-          renderList();
-        });
-      }
-      syncSelectedFromTextarea();
-      renderList();
-    });
-  })();
-</script>
 {% endblock %}

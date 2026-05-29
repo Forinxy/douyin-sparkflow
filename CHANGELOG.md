@@ -2,6 +2,9 @@
 
 ## 2026-05-30
 
+- Redesigned the Web UI into dedicated overview, login workspace, accounts, send console, logs, and settings views.
+- Moved the console styling and interaction scripts into `DouYinSparkFlow/webui/static/` with a denser admin-console layout and mobile drawer navigation.
+- Added safer confirmations for manual operations and localized the main Web UI feedback messages.
 - Added a project disclaimer to the root README.
 - Added a Linux Do friendly link and GitHub star history chart.
 - Refined the root README wording and structure for an open source project style.

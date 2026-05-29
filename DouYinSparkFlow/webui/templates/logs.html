@@ -1,16 +1,20 @@
 {% extends "base.html" %}
 
+{% block nav_key %}logs{% endblock %}
 {% block title %}运行日志 | 抖音多账号续火花控制台{% endblock %}
 {% block page_title %}运行日志{% endblock %}
+{% block page_subtitle %}查看最近任务输出和服务诊断信息{% endblock %}
 
 {% block content %}
 <section class="panel">
   <div class="panel-header">
     <div>
       <h2>详细日志</h2>
-      <p class="muted compact">展示最近的任务输出，便于检查登录同步、发送过程和容器状态。</p>
+      <p class="muted compact">
+        展示最近的任务输出，便于检查登录同步、发送过程和容器状态。
+      </p>
     </div>
-    <a class="link-button" href="/">返回控制台</a>
+    <a class="link-button" href="/settings">返回系统设置</a>
   </div>
   <pre class="code-block tall">{{ log_tail or "暂无日志" }}</pre>
 </section>

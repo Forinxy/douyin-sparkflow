@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+
+{% block nav_key %}settings{% endblock %}
+{% block title %}运行与系统 | 自动续火花{% endblock %}
+{% block page_title %}运行与系统{% endblock %}
+{% block page_subtitle %}发送参数、手动任务、代理维护和面板服务设置{% endblock %}
+
+{% block topbar_actions %}
+<a class="ghost-button" href="/ops/logs">运行日志</a>
+<a class="soft-button" href="/ops/send-console">发送控制台</a>
+{% endblock %}
+
+{% block content %}
+<div class="settings-layout">
+  <div class="settings-stack">
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>运行配置</h2>
+          <p class="muted compact">
+            消息模板、随机策略和发送间隔等核心任务参数。
+          </p>
+        </div>
+      </div>
+      <form method="post" action="/config" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <label>
+          <span>固定消息模板</span>
+          <input
+            type="text"
+            name="messageTemplate"
+            value="{{ runtime_config.messageTemplate }}"
+          />
+        </label>
+        <label>
+          <span>消息变体（每行一个）</span>
+          <textarea name="messageVariants" rows="5">
+{{ runtime_config.sendStrategy.messageVariants|join('\n') }}</textarea
+          >
+        </label>
+        <label>
+          <span>是否随机打乱目标顺序</span>
+          <select name="shuffleTargets">
+            <option
+              value="on"
+              {%
+              if
+              runtime_config.sendStrategy.shuffleTargets
+              %}selected{%
+              endif
+              %}
+            >
+              是
+            </option>
+            <option
+              value=""
+              {%
+              if
+              not
+              runtime_config.sendStrategy.shuffleTargets
+              %}selected{%
+              endif
+              %}
+            >
+              否
+            </option>
+          </select>
+        </label>
+        <div class="settings-grid">
+          <label>
+            <span>消息最小间隔（秒）</span>
+            <input
+              type="number"
+              name="messageIntervalSecondsMin"
+              min="0"
+              value="{{ runtime_config.sendStrategy.messageIntervalSecondsMin }}"
+            />
+          </label>
+          <label>
+            <span>消息最大间隔（秒）</span>
+            <input
+              type="number"
+              name="messageIntervalSecondsMax"
+              min="0"
+              value="{{ runtime_config.sendStrategy.messageIntervalSecondsMax }}"
+            />
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit">保存运行配置</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>面板与服务设置</h2>
+          <p class="muted compact">
+            服务连接、日志路径、交互式登录 API 与管理员配置。
+          </p>
+        </div>
+      </div>
+      <form method="post" action="/settings" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <div class="settings-grid">
+          <label>
+            <span>服务器 Host</span>
+            <input
+              type="text"
+              name="server_host"
+              value="{{ app_settings.server_host }}"
+            />
+          </label>
+          <label>
+            <span>服务器用户名</span>
+            <input
+              type="text"
+              name="server_username"
+              value="{{ app_settings.server_username }}"
+            />
+          </label>
+          <label>
+            <span>服务器密码</span>
+            <input
+              type="password"
+              name="server_password"
+              value="{{ app_settings.server_password }}"
+            />
+          </label>
+          <label>
+            <span>Compose 根目录</span>
+            <input
+              type="text"
+              name="compose_root"
+              value="{{ app_settings.compose_root }}"
+            />
+          </label>
+          <label>
+            <span>任务日志文件</span>
+            <input
+              type="text"
+              name="ops_log_file"
+              value="{{ app_settings.ops_log_file }}"
+            />
+          </label>
+          <label>
+            <span>代理刷新脚本</span>
+            <input
+              type="text"
+              name="proxy_refresh_script"
+              value="{{ app_settings.proxy_refresh_script }}"
+            />
+          </label>
+          <label>
+            <span>登录桌面 API 地址</span>
+            <input
+              type="text"
+              name="login_desktop_api_url"
+              value="{{ app_settings.login_desktop_api_url }}"
+            />
+          </label>
+          <label>
+            <span>Web UI 端口</span>
+            <input
+              type="number"
+              min="1"
+              max="65535"
+              name="ui_port"
+              value="{{ app_settings.ui_port }}"
+            />
+          </label>
+          <label>
+            <span>修改管理员密码</span>
+            <input
+              type="password"
+              name="new_password"
+              placeholder="留空表示不修改"
+            />
+          </label>
+          <label>
+            <span>确认新密码</span>
+            <input
+              type="password"
+              name="confirm_password"
+              placeholder="再次输入新密码"
+            />
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="submit">保存系统设置</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>容器与调度</h2>
+          <p class="muted compact">用于确认部署服务状态和当前调度任务。</p>
+        </div>
+      </div>
+      <div class="content-grid">
+        <div class="table-shell">
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Image</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in ops.containers %}
+              <tr>
+                <td>{{ row.Names }}</td>
+                <td>
+                  <span
+                    class="pill {% if 'Up' in row.Status %}success{% else %}warning{% endif %}"
+                    >{{ row.Status }}</span
+                  >
+                </td>
+                <td>{{ row.Image }}</td>
+              </tr>
+              {% else %}
+              <tr>
+                <td colspan="3">当前没有可见容器状态。</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <pre class="code-block">
+{{ ops.crontab or "当前没有 crontab 任务。" }}</pre
+        >
+      </div>
+    </section>
+  </div>
+
+  <aside class="settings-stack">
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>手动任务</h2>
+          <p class="muted compact">
+            批量发送动作会影响多个账号，执行前请确认目标范围。
+          </p>
+        </div>
+      </div>
+      <div class="link-list">
+        <form method="post" action="/ops/run-unsent">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="soft-button" type="submit">补发未成功目标</button>
+        </form>
+        <form
+          method="post"
+          action="/ops/run-now"
+          data-confirm="补发全部对象会对所有启用账号的全部目标重新发送一遍，确认继续？"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="danger-button" type="submit">补发全部对象</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>代理维护</h2>
+          <p class="muted compact">刷新订阅或重启代理容器。</p>
+        </div>
+      </div>
+      <div class="link-list">
+        <form method="post" action="/ops/proxy/refresh">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="ghost-button" type="submit">刷新代理订阅</button>
+        </form>
+        <form
+          method="post"
+          action="/ops/proxy/restart"
+          data-confirm="确认重启代理容器？重启期间发送任务可能短暂受影响。"
+        >
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+          <button class="danger-button" type="submit">重启代理容器</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>发送窗口</h2>
+          <p class="muted compact">北京时间，例如 10:00-18:00/10m。</p>
+        </div>
+      </div>
+      <form method="post" action="/ops/schedule" class="stack-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}" />
+        <label>
+          <span>当前发送窗口</span>
+          <input
+            type="text"
+            name="daily_schedule"
+            value="{{ ops.daily_schedule }}"
+            placeholder="10:00-18:00/10m"
+          />
+        </label>
+        <button type="submit" class="ghost-button">更新发送窗口</button>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>部署路径</h2>
+          <p class="muted compact">只读展示当前检测到的 Compose 信息。</p>
+        </div>
+      </div>
+      <div class="stack-form">
+        <label>
+          <span>Compose 根目录</span>
+          <input type="text" value="{{ ops.compose_root }}" readonly />
+        </label>
+        <label>
+          <span>Compose 文件路径</span>
+          <input
+            type="text"
+            value="{{ ops.compose_file or '未检测到' }}"
+            readonly
+          />
+        </label>
+      </div>
+    </section>
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{% block nav_key %}login_workspace{% endblock %}
+{% block title %}登录工作区 | 自动续火花{% endblock %}
+{% block page_title %}登录工作区{% endblock %}
+{% block page_subtitle %}通过远端浏览器完成扫码、验证和登录态保存{% endblock %}
+
+{% block topbar_actions %}
+<a class="ghost-button" href="/accounts">账号管理</a>
+<a class="soft-button" href="/ops/send-console">发送控制台</a>
+{% endblock %}
+
+{% block content %}
+<div class="login-workspace-grid">
+  <aside class="stack">
+    <section class="panel">
+      <div class="section-title-row">
+        <div>
+          <h2>登录流程</h2>
+          <p class="muted compact">
+            适合新增账号、登录态失效或需要人工接管验证码的场景。
+          </p>
+        </div>
+      </div>
+      <div class="summary-list">
+        <div class="summary-row">
+          <strong>1. 打开浏览器</strong><span>启动远端交互式桌面</span>
+        </div>
+        <div class="summary-row">
+          <strong>2. 扫码与验证</strong><span>在 noVNC 中完成人工步骤</span>
+        </div>
+        <div class="summary-row">
+          <strong>3. 保存登录态</strong><span>写入新账号或覆盖已有账号</span>
+        </div>
+      </div>
+    </section>
+
+    <section
+      class="panel"
+      id="login-desktop-controls"
+      data-public-url="{{ login_desktop_public_url }}"
+      data-csrf-token="{{ csrf_token }}"
+    >
+      <div class="section-title-row">
+        <div>
+          <h2>桌面状态</h2>
+          <p class="muted compact">后台会持续轮询登录工作区状态。</p>
+        </div>
+      </div>
+
+      <div class="status-list">
+        <div class="status-item" id="desktop-status-checking">
+          <span class="status-dot"></span><span>检查中</span>
+        </div>
+        <div class="status-item pending" id="desktop-status-pending">
+          <span class="status-dot"></span><span>待登录</span>
+        </div>
+        <div class="status-item success" id="desktop-status-success">
+          <span class="status-dot"></span><span>已登录</span>
+        </div>
+        <div class="status-item error" id="desktop-status-error">
+          <span class="status-dot"></span><span>异常</span>
+        </div>
+      </div>
+
+      <div class="info-card">
+        <div class="button-row space-below-sm">
+          <span class="pill" id="login-desktop-runtime-state">检查中</span>
+        </div>
+        <div id="login-desktop-status-text">正在检查登录工作区状态。</div>
+      </div>
+
+      <div class="button-row space-above-md">
+        <button
+          type="button"
+          class="success-button login-desktop-open"
+          data-relogin-unique-id=""
+        >
+          打开新窗口
+        </button>
+        <button
+          type="button"
+          class="ghost-button login-desktop-reset"
+          data-confirm="确认重置登录工作区？当前远端浏览器状态会被重置。"
+        >
+          重置桌面
+        </button>
+        <button
+          type="button"
+          class="soft-button login-desktop-save"
+          data-relogin-unique-id=""
+        >
+          保存当前账号
+        </button>
+      </div>
+    </section>
+  </aside>
+
+  <section class="panel">
+    <div class="section-title-row">
+      <div>
+        <h2>浏览器工作区</h2>
+        <p class="muted compact">
+          如果内嵌 noVNC 无法连接，请使用新窗口打开或检查 login-desktop 服务。
+        </p>
+      </div>
+    </div>
+
+    <div class="url-field space-below-sm">
+      <input
+        id="desktop-public-url"
+        type="text"
+        value="{{ login_desktop_public_url }}"
+        readonly
+      />
+      <button
+        type="button"
+        class="ghost-button copy-button"
+        id="copy-public-url"
+        aria-label="复制地址"
+      >
+        ⧉
+      </button>
+      <a
+        class="soft-button"
+        href="{{ login_desktop_public_url }}"
+        target="_blank"
+        rel="noreferrer"
+        >新窗口打开</a
+      >
+    </div>
+
+    <div class="browser-frame-shell">
+      <div class="browser-frame-toolbar">
+        <span>noVNC 登录桌面</span>
+        <span class="pill info">端口 8788</span>
+      </div>
+      <iframe
+        class="desktop-frame"
+        src="{{ login_desktop_public_url }}"
+        title="交互式登录浏览器工作区"
+        loading="lazy"
+      ></iframe>
+      <div class="frame-help">
+        连接失败时，请先点击“打开新窗口”；仍失败则重置桌面或检查容器状态。
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

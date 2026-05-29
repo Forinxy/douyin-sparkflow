@@ -2,758 +2,121 @@
 <!doctype html>
 <html lang="zh-CN">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}自动续火花{% endblock %}</title>
-    <style>
-      :root {
-        --bg: #f5f8fd;
-        --bg-glow: rgba(61, 118, 255, 0.08);
-        --surface: #ffffff;
-        --surface-subtle: #f8fbff;
-        --surface-tint: #f3f7ff;
-        --border: #e3ebf5;
-        --border-strong: #ced9ea;
-        --text: #1a2740;
-        --text-soft: #5e6e8c;
-        --primary: #2f67ff;
-        --primary-strong: #2158f5;
-        --primary-soft: #ecf3ff;
-        --success: #26b064;
-        --success-soft: #ebfbf2;
-        --danger: #ff6b5f;
-        --danger-soft: #fff1ee;
-        --warning: #ffad3b;
-        --warning-soft: #fff6e9;
-        --info: #6f92ff;
-        --info-soft: #eef3ff;
-        --shadow: 0 18px 48px rgba(24, 40, 72, 0.08);
-        --shadow-soft: 0 10px 26px rgba(24, 40, 72, 0.05);
-        --radius-xl: 24px;
-        --radius-lg: 20px;
-        --radius-md: 16px;
-        --radius-sm: 12px;
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      html,
-      body {
-        margin: 0;
-        min-height: 100%;
-      }
-
-      body {
-        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-        color: var(--text);
-        background:
-          radial-gradient(circle at top left, rgba(75, 130, 255, 0.16), transparent 24%),
-          radial-gradient(circle at right center, rgba(255, 190, 120, 0.12), transparent 20%),
-          linear-gradient(180deg, #f9fbff 0%, #f4f7fc 100%);
-      }
-
-      a {
-        color: inherit;
-        text-decoration: none;
-      }
-
-      button,
-      input,
-      textarea,
-      select {
-        font: inherit;
-      }
-
-      .app-shell {
-        min-height: 100vh;
-        display: grid;
-        grid-template-columns: 232px minmax(0, 1fr);
-      }
-
-      .sidebar {
-        position: sticky;
-        top: 0;
-        height: 100vh;
-        padding: 18px 16px 20px;
-        border-right: 1px solid rgba(225, 232, 243, 0.92);
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.96));
-        backdrop-filter: blur(8px);
-        display: flex;
-        flex-direction: column;
-        gap: 22px;
-      }
-
-      .brand {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 6px 4px 4px;
-      }
-
-      .brand-mark {
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, var(--primary), #5a8aff);
-        color: #fff;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 16px;
-        font-weight: 700;
-        box-shadow: 0 10px 20px rgba(47, 103, 255, 0.28);
-      }
-
-      .brand-title {
-        font-size: 18px;
-        font-weight: 700;
-        letter-spacing: 0.01em;
-      }
-
-      .brand-subtitle {
-        margin-top: 4px;
-        font-size: 12px;
-        color: var(--text-soft);
-      }
-
-      .sidebar-section-title {
-        margin: 0 10px 8px;
-        font-size: 11px;
-        color: #93a3bf;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-      }
-
-      .nav-list {
-        display: grid;
-        gap: 6px;
-      }
-
-      .nav-item {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 14px;
-        border-radius: 14px;
-        color: var(--text-soft);
-        transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
-      }
-
-      .nav-item:hover {
-        background: rgba(47, 103, 255, 0.06);
-        color: var(--text);
-      }
-
-      .nav-item.active {
-        background: linear-gradient(180deg, #eef4ff, #e8f0ff);
-        color: var(--primary-strong);
-        font-weight: 700;
-        box-shadow: inset 0 0 0 1px rgba(47, 103, 255, 0.08);
-      }
-
-      .nav-icon {
-        width: 18px;
-        text-align: center;
-        font-size: 14px;
-        flex: 0 0 18px;
-      }
-
-      .sidebar-footer {
-        margin-top: auto;
-        padding: 14px 12px;
-        border-radius: 18px;
-        background: linear-gradient(180deg, #ffffff, #f4f8ff);
-        border: 1px solid var(--border);
-        box-shadow: var(--shadow-soft);
-      }
-
-      .sidebar-footer-head {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .sidebar-footer-mark {
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #4e7dff, #7096ff);
-        color: #fff;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 700;
-      }
-
-      .sidebar-footer-title {
-        font-size: 14px;
-        font-weight: 700;
-      }
-
-      .sidebar-footer-subtitle {
-        margin-top: 2px;
-        font-size: 12px;
-        color: var(--text-soft);
-      }
-
-      .main-area {
-        min-width: 0;
-        padding: 26px 28px 32px;
-      }
-
-      .page-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 18px;
-        margin-bottom: 22px;
-      }
-
-      .page-header__title {
-        display: flex;
-        align-items: baseline;
-        gap: 14px;
-        flex-wrap: wrap;
-      }
-
-      .page-title {
-        font-size: 32px;
-        line-height: 1.1;
-        font-weight: 800;
-        letter-spacing: -0.02em;
-      }
-
-      .page-subtitle {
-        font-size: 15px;
-        color: var(--text-soft);
-        font-weight: 600;
-      }
-
-      .page-header__actions {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        flex-wrap: wrap;
-      }
-
-      .page-body {
-        display: grid;
-        gap: 22px;
-      }
-
-      .stack {
-        display: grid;
-        gap: 22px;
-      }
-
-      .panel {
-        background: rgba(255, 255, 255, 0.96);
-        border: 1px solid rgba(226, 234, 245, 0.95);
-        border-radius: var(--radius-lg);
-        box-shadow: var(--shadow);
-        padding: 22px;
-      }
-
-      .section-title-row,
-      .panel-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 18px;
-      }
-
-      .section-title-row h2,
-      .panel h2,
-      .panel h3,
-      .panel h4 {
-        margin: 0;
-      }
-
-      .muted {
-        color: var(--text-soft);
-      }
-
-      .muted.compact {
-        margin: 6px 0 0;
-        font-size: 13px;
-        line-height: 1.6;
-      }
-
-      .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 18px;
-      }
-
-      .stat-card {
-        min-height: 124px;
-        border-radius: var(--radius-md);
-        border: 1px solid rgba(227, 235, 245, 0.96);
-        background: linear-gradient(180deg, #ffffff, #fcfdff);
-        box-shadow: var(--shadow-soft);
-        padding: 20px 22px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 14px;
-      }
-
-      .stat-meta {
-        display: grid;
-        gap: 10px;
-      }
-
-      .stat-label {
-        font-size: 14px;
-        color: var(--text-soft);
-      }
-
-      .stat-value {
-        font-size: 28px;
-        line-height: 1;
-        font-weight: 800;
-        letter-spacing: -0.03em;
-      }
-
-      .stat-help {
-        font-size: 13px;
-        color: var(--text-soft);
-      }
-
-      .stat-help.positive {
-        color: var(--success);
-      }
-
-      .stat-help.negative {
-        color: var(--danger);
-      }
-
-      .stat-icon {
-        width: 58px;
-        height: 58px;
-        border-radius: 50%;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
-        font-weight: 700;
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.55);
-      }
-
-      .stat-icon.blue {
-        background: linear-gradient(180deg, #eef4ff, #dfe9ff);
-        color: var(--primary-strong);
-      }
-
-      .stat-icon.green {
-        background: linear-gradient(180deg, #edfcf3, #dcf7e7);
-        color: var(--success);
-      }
-
-      .stat-icon.red {
-        background: linear-gradient(180deg, #fff1ee, #ffe3de);
-        color: var(--danger);
-      }
-
-      .stat-icon.orange {
-        background: linear-gradient(180deg, #fff7ea, #ffeed2);
-        color: var(--warning);
-      }
-
-      .layout-grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 360px;
-        gap: 22px;
-        align-items: start;
-      }
-
-      .overview-time {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--text-soft);
-        font-size: 14px;
-        font-weight: 600;
-      }
-
-      .overview-time::before {
-        content: "";
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, var(--primary), #8fb0ff);
-        box-shadow: 0 0 0 4px rgba(47, 103, 255, 0.12);
-      }
-
-      .status-pill,
-      .pill,
-      .status-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        border-radius: 999px;
-        padding: 6px 12px;
-        font-size: 12px;
-        font-weight: 700;
-        color: var(--text-soft);
-        background: #f3f6fb;
-        border: 1px solid transparent;
-      }
-
-      .pill.soft,
-      .status-pill.soft,
-      .status-chip.success {
-        color: var(--success);
-        background: var(--success-soft);
-      }
-
-      .pill.warning,
-      .status-pill.warning,
-      .status-chip.warning {
-        color: var(--warning);
-        background: var(--warning-soft);
-      }
-
-      .pill.danger,
-      .status-pill.danger,
-      .status-chip.danger {
-        color: var(--danger);
-        background: var(--danger-soft);
-      }
-
-      .status-chip.info {
-        color: var(--info);
-        background: var(--info-soft);
-      }
-
-      .status-line {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-
-      button,
-      .link-button {
-        appearance: none;
-        border: none;
-        border-radius: 12px;
-        background: linear-gradient(180deg, #3d79ff, #2f67ff);
-        color: #fff;
-        cursor: pointer;
-        padding: 12px 18px;
-        font-weight: 700;
-        box-shadow: 0 12px 22px rgba(47, 103, 255, 0.18);
-        transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
-      }
-
-      button:hover,
-      .link-button:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 16px 28px rgba(47, 103, 255, 0.22);
-      }
-
-      button:disabled {
-        cursor: not-allowed;
-        opacity: 0.6;
-        transform: none;
-      }
-
-      .ghost-button,
-      .soft-button,
-      .danger-button {
-        background: #fff;
-        box-shadow: none;
-      }
-
-      .ghost-button {
-        color: var(--text);
-        border: 1px solid var(--border);
-      }
-
-      .soft-button {
-        color: var(--primary-strong);
-        background: var(--primary-soft);
-        border: 1px solid rgba(47, 103, 255, 0.1);
-      }
-
-      .danger-button {
-        color: var(--danger);
-        border: 1px solid rgba(255, 107, 95, 0.18);
-        background: var(--danger-soft);
-      }
-
-      .button-row,
-      .button-grid {
-        display: grid;
-        gap: 12px;
-      }
-
-      .button-row.two,
-      .button-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      input[type="text"],
-      input[type="password"],
-      input[type="search"],
-      input[type="number"],
-      textarea,
-      select {
-        width: 100%;
-        border: 1px solid var(--border-strong);
-        border-radius: 12px;
-        background: #fff;
-        color: var(--text);
-        padding: 11px 13px;
-        outline: none;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      }
-
-      input:focus,
-      textarea:focus,
-      select:focus {
-        border-color: rgba(47, 103, 255, 0.55);
-        box-shadow: 0 0 0 4px rgba(47, 103, 255, 0.1);
-      }
-
-      textarea {
-        min-height: 96px;
-        resize: vertical;
-      }
-
-      .stack-form {
-        display: grid;
-        gap: 14px;
-      }
-
-      .stack-form label {
-        display: grid;
-        gap: 8px;
-      }
-
-      .stack-form span {
-        font-size: 13px;
-        color: var(--text-soft);
-      }
-
-      .check-row {
-        display: flex !important;
-        align-items: center;
-        gap: 10px;
-      }
-
-      .check-row span {
-        color: var(--text);
-      }
-
-      .flash {
-        border-radius: 14px;
-        padding: 14px 16px;
-        border: 1px solid var(--border);
-        box-shadow: var(--shadow-soft);
-        background: #fff;
-      }
-
-      .flash.success {
-        background: var(--success-soft);
-        color: #1b6d42;
-        border-color: rgba(38, 176, 100, 0.18);
-      }
-
-      .flash.warning {
-        background: var(--warning-soft);
-        color: #9a6307;
-        border-color: rgba(255, 173, 59, 0.18);
-      }
-
-      .flash.error {
-        background: var(--danger-soft);
-        color: #a33b32;
-        border-color: rgba(255, 107, 95, 0.16);
-      }
-
-      .table-shell {
-        overflow: hidden;
-        border: 1px solid rgba(227, 235, 245, 0.96);
-        border-radius: 14px;
-        background: #fff;
-      }
-
-      .table-shell.scrollable {
-        overflow: auto;
-      }
-
-      table {
-        width: 100%;
-        border-collapse: collapse;
-      }
-
-      th,
-      td {
-        padding: 12px 14px;
-        border-bottom: 1px solid rgba(232, 238, 247, 0.96);
-        text-align: left;
-        font-size: 13px;
-        vertical-align: middle;
-      }
-
-      th {
-        background: #fbfcff;
-        color: var(--text-soft);
-        font-weight: 700;
-      }
-
-      tbody tr:last-child td {
-        border-bottom: none;
-      }
-
-      tbody tr:hover td {
-        background: rgba(248, 251, 255, 0.78);
-      }
-
-      .code-block {
-        margin: 0;
-        padding: 16px;
-        border-radius: 14px;
-        background: #0f1728;
-        color: #dbe4fb;
-        overflow: auto;
-        font-size: 12px;
-        line-height: 1.7;
-      }
-
-      .code-block.light {
-        color: var(--text);
-        background: #f7f9fd;
-        border: 1px solid var(--border);
-      }
-
-      .empty-state {
-        padding: 34px 20px;
-        text-align: center;
-        border-radius: 16px;
-        border: 1px dashed var(--border-strong);
-        background: rgba(255, 255, 255, 0.72);
-        color: var(--text-soft);
-      }
-
-      @media (max-width: 1380px) {
-        .stats-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .layout-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      @media (max-width: 1080px) {
-        .app-shell {
-          grid-template-columns: 1fr;
-        }
-
-        .sidebar {
-          display: none;
-        }
-
-        .main-area {
-          padding: 18px 16px 28px;
-        }
-
-        .page-header {
-          flex-direction: column;
-        }
-
-        .stats-grid,
-        .button-grid,
-        .button-row.two {
-          grid-template-columns: 1fr;
-        }
-      }
-    </style>
+    <link rel="stylesheet" href="/static/app.css" />
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar">
-        <div>
-          <div class="brand">
-            <div class="brand-mark">⚡</div>
-            <div>
-              <div class="brand-title">自动续火花</div>
-              <div class="brand-subtitle">多账号发送控制平台</div>
-            </div>
-          </div>
+      <div class="mobile-topbar">
+        <button
+          type="button"
+          class="icon-button"
+          data-nav-toggle
+          aria-label="打开导航"
+        >
+          ☰
+        </button>
+        <div class="mobile-brand">
+          <span class="brand-mark">⚡</span>
+          <span>自动续火花</span>
+        </div>
+      </div>
 
-          <p class="sidebar-section-title">导航</p>
-          <nav class="nav-list">
-            <a class="nav-item {% if current_nav|trim == 'dashboard' %}active{% endif %}" href="/">
+      <div class="sidebar-backdrop" data-nav-close></div>
+
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <div class="brand-mark">⚡</div>
+          <div>
+            <div class="brand-title">自动续火花</div>
+            <div class="brand-subtitle">多账号发送控制台</div>
+          </div>
+        </div>
+
+        <nav class="nav-groups">
+          <section class="nav-group">
+            <p class="nav-group-title">概览</p>
+            <a
+              class="nav-item {% if current_nav|trim == 'dashboard' %}active{% endif %}"
+              href="/"
+            >
               <span class="nav-icon">⌂</span>
-              <span>首页</span>
+              <span>控制台概览</span>
             </a>
-            <a class="nav-item {% if current_nav|trim == 'send_console' %}active{% endif %}" href="/ops/send-console">
+          </section>
+
+          <section class="nav-group">
+            <p class="nav-group-title">发送</p>
+            <a
+              class="nav-item {% if current_nav|trim == 'send_console' %}active{% endif %}"
+              href="/ops/send-console"
+            >
               <span class="nav-icon">✦</span>
               <span>发送控制台</span>
             </a>
-            <a class="nav-item" href="/#ops-panel">
-              <span class="nav-icon">☷</span>
-              <span>任务管理</span>
-            </a>
-            <a class="nav-item" href="/#account-management">
+            <a
+              class="nav-item {% if current_nav|trim == 'login_workspace' %}active{% endif %}"
+              href="/login-workspace"
+            >
               <span class="nav-icon">◉</span>
-              <span>账号管理</span>
+              <span>登录工作区</span>
             </a>
-            <a class="nav-item" href="/#account-management">
+          </section>
+
+          <section class="nav-group">
+            <p class="nav-group-title">账号</p>
+            <a
+              class="nav-item {% if current_nav|trim == 'accounts' %}active{% endif %}"
+              href="/accounts"
+            >
               <span class="nav-icon">◎</span>
-              <span>目标管理</span>
+              <span>账号与目标</span>
             </a>
-            <a class="nav-item" href="/#config-panel">
-              <span class="nav-icon">▣</span>
-              <span>内容管理</span>
-            </a>
-            <a class="nav-item" href="/ops/logs">
-              <span class="nav-icon">☰</span>
-              <span>发送记录</span>
-            </a>
-            <a class="nav-item" href="/ops/send-console">
-              <span class="nav-icon">⚠</span>
-              <span>失败管理</span>
-            </a>
-            <a class="nav-item" href="/ops/send-console">
-              <span class="nav-icon">⌗</span>
-              <span>数据统计</span>
-            </a>
-            <a class="nav-item" href="/#settings-panel">
+          </section>
+
+          <section class="nav-group">
+            <p class="nav-group-title">系统</p>
+            <a
+              class="nav-item {% if current_nav|trim == 'settings' %}active{% endif %}"
+              href="/settings"
+            >
               <span class="nav-icon">⚙</span>
-              <span>系统设置</span>
+              <span>运行与系统</span>
             </a>
-          </nav>
-        </div>
+            <a
+              class="nav-item {% if current_nav|trim == 'logs' %}active{% endif %}"
+              href="/ops/logs"
+            >
+              <span class="nav-icon">☰</span>
+              <span>运行日志</span>
+            </a>
+          </section>
+        </nav>
 
         <div class="sidebar-footer">
-          <div class="sidebar-footer-head">
-            <div class="sidebar-footer-mark">⚡</div>
-            <div>
-              <div class="sidebar-footer-title">运营团队</div>
-              <div class="sidebar-footer-subtitle">批量管理与调度</div>
-            </div>
-          </div>
+          <div class="sidebar-footer-title">运行状态</div>
+          <div class="sidebar-footer-subtitle">批量发送与运维调度</div>
         </div>
       </aside>
 
       <main class="main-area">
         <header class="page-header">
           <div>
-            <div class="page-header__title">
-              <div class="page-title">{% block page_title %}自动续火花{% endblock %}</div>
-              <div class="page-subtitle">{% block page_subtitle %}多账号发送控制平台{% endblock %}</div>
+            <div class="eyebrow">
+              {% block page_eyebrow %}SparkFlow Admin{% endblock %}
+            </div>
+            <div class="page-title-row">
+              <h1 class="page-title">
+                {% block page_title %}自动续火花{% endblock %}
+              </h1>
+              <p class="page-subtitle">
+                {% block page_subtitle %}多账号发送控制平台{% endblock %}
+              </p>
             </div>
           </div>
-          <div class="page-header__actions">
+          <div class="page-header-actions">
             {% block topbar_actions %}{% endblock %}
           </div>
         </header>
@@ -761,12 +124,12 @@
         <div class="page-body">
           {% if flash %}
           <div class="flash {{ flash.level }}">{{ flash.message }}</div>
-          {% endif %}
-          {% block content %}{% endblock %}
+          {% endif %} {% block content %}{% endblock %}
         </div>
       </main>
     </div>
 
+    <script src="/static/app.js" defer></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>
