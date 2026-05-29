@@ -20,6 +20,7 @@ services:
       dockerfile: Dockerfile.server
       network: host
       args:
+        PLAYWRIGHT_BASE_IMAGE: ${PLAYWRIGHT_BASE_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/mcr.microsoft.com/playwright/python:v1.56.0-jammy}
         HTTP_PROXY: ${HTTP_PROXY_BUILD:-}
         HTTPS_PROXY: ${HTTPS_PROXY_BUILD:-}
         ALL_PROXY: ${ALL_PROXY_BUILD:-}

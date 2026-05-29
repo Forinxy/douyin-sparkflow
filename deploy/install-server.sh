@@ -94,7 +94,7 @@ prepare_runtime_files() {
     run_root cp "$APP_ROOT/.env.example" "$APP_ROOT/.env"
   fi
   set_env_value "$APP_ROOT/.env" "APP_ROOT" "$APP_ROOT"
-  for key in TZ WEB_PORT LOGIN_DESKTOP_WEB_PORT PROXY_HTTP_PORT PROXY_CONTROLLER_PORT PROXY_SUB_URL HTTP_PROXY_BUILD HTTPS_PROXY_BUILD ALL_PROXY_BUILD; do
+  for key in TZ WEB_PORT LOGIN_DESKTOP_WEB_PORT PROXY_HTTP_PORT PROXY_CONTROLLER_PORT PROXY_SUB_URL PLAYWRIGHT_BASE_IMAGE HTTP_PROXY_BUILD HTTPS_PROXY_BUILD ALL_PROXY_BUILD; do
     if [ -n "${!key:-}" ]; then
       set_env_value "$APP_ROOT/.env" "$key" "${!key}"
     fi

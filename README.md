@@ -70,6 +70,12 @@ docker compose restart proxy
 
 如果 `.env` 里的 `PROXY_SUB_URL` 为空，系统会使用 `proxy/config.example.yaml` 生成一个直连配置。
 
+首次构建会拉取较大的 Playwright 基础镜像。默认 `.env.example` 使用国内同步源以加速下载；如果同步源不可用，可以把 `.env` 里的 `PLAYWRIGHT_BASE_IMAGE` 改回：
+
+```bash
+PLAYWRIGHT_BASE_IMAGE=mcr.microsoft.com/playwright/python:v1.56.0-jammy
+```
+
 ## 目录结构
 
 - `DouYinSparkFlow/`：核心应用、Web UI、登录桌面和发送任务。
