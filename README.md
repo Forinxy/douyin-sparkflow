@@ -2,6 +2,10 @@
 
 Douyin SparkFlow 是一个用于自动续火花的 Web 管理版部署包。推荐用 Docker Compose 部署，启动后在浏览器里完成管理员密码、扫码登录、目标好友勾选和发送窗口设置。
 
+## GitHub Star 趋势
+
+[![GitHub Star 趋势图](https://api.star-history.com/svg?repos=halfwaystudent/douyin-sparkflow&type=Date)](https://star-history.com/#halfwaystudent/douyin-sparkflow&Date)
+
 ## 一键部署到服务器
 
 适合 Ubuntu/Debian/CentOS 类服务器：
@@ -108,6 +112,10 @@ PLAYWRIGHT_BASE_IMAGE=mcr.microsoft.com/playwright/python:v1.56.0-jammy
 请妥善保管 `.env`、登录态、Cookie、代理配置和运行日志等敏感信息，不要提交到公开仓库，也不要分享给不可信的第三方。如果平台规则、接口页面或风控策略发生变化，请立即停止使用并自行评估风险。
 
 继续部署、运行或修改本项目，即表示你已理解并接受以上说明；如果你不同意，请停止使用本项目。
+
+## 友情链接
+
+- [Linux Do](https://linux.do/)
 
 ## 许可
 
