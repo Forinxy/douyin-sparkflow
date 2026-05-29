@@ -1,16 +1,20 @@
-# douyin-sparkflow
+# 🔥 douyin-sparkflow
 
 Douyin SparkFlow 提供一个面向个人自用场景的抖音火花维护工具。项目包含 Web 管理面板、登录桌面、定时任务和代理配置模板，默认通过 Docker Compose 部署。
 
-## 功能特性
+## 🧭 上游项目
 
-- Web 面板管理账号、目标好友和发送窗口。
-- 浏览器扫码登录并保存本地登录态。
-- 定时执行续火花任务，支持手动触发和日志查看。
-- 可选 Mihomo/Clash 代理订阅配置。
-- Docker Compose 编排 Web、登录桌面、定时器、任务和代理服务。
+本项目基于 [2061360308/DouYinSparkFlow](https://github.com/2061360308/DouYinSparkFlow) 进行二次开发，主要补充 Web 管理、Docker Compose 部署和运行维护相关能力。
 
-## 免责声明
+## ✨ 功能特性
+
+- 🖥️ Web 面板管理账号、目标好友和发送窗口。
+- 🔐 浏览器扫码登录并保存本地登录态。
+- ⏱️ 定时执行续火花任务，支持手动触发和日志查看。
+- 🌐 可选 Mihomo/Clash 代理订阅配置。
+- 🐳 Docker Compose 编排 Web、登录桌面、定时器、任务和代理服务。
+
+## ⚠️ 免责声明
 
 本项目仅用于个人学习、研究和自用场景，不是抖音、字节跳动或相关平台的官方工具，也未获得其授权、背书或关联。
 
@@ -22,7 +26,7 @@ Douyin SparkFlow 提供一个面向个人自用场景的抖音火花维护工具
 
 继续部署、运行或修改本项目，即表示你已理解并接受以上说明；如果你不同意，请停止使用本项目。
 
-## 快速开始
+## 🚀 快速开始
 
 在服务器上运行：
 
@@ -49,7 +53,7 @@ curl -fsSL https://raw.githubusercontent.com/halfwaystudent/douyin-sparkflow/mai
 4. 刷新好友列表并选择目标好友。
 5. 设置发送窗口，例如 `10:00-18:00/10m`。
 
-## 本地运行
+## 💻 本地运行
 
 Windows 需要先启动 Docker Desktop：
 
@@ -71,7 +75,7 @@ Linux/macOS：
 
 本地脚本会创建 `.env`、运行态目录和默认代理配置，并执行 `docker compose up -d --build`。
 
-## 配置说明
+## ⚙️ 配置说明
 
 如果 `.env` 中的 `PROXY_SUB_URL` 为空，项目会使用 `proxy/config.example.yaml` 生成直连代理配置。
 
@@ -81,7 +85,7 @@ Linux/macOS：
 PLAYWRIGHT_BASE_IMAGE=mcr.microsoft.com/playwright/python:v1.56.0-jammy
 ```
 
-## 常用命令
+## 🧰 常用命令
 
 ```bash
 docker compose ps
@@ -98,7 +102,7 @@ docker compose down
 docker compose restart proxy
 ```
 
-## 项目结构
+## 📁 项目结构
 
 - `DouYinSparkFlow/`：核心应用、Web UI、登录桌面和发送任务。
 - `docker-compose.yml`：容器编排入口。
@@ -106,7 +110,7 @@ docker compose restart proxy
 - `proxy/config.example.yaml`：代理配置模板。
 - `.env.example`：部署环境变量模板。
 
-## 运行时文件
+## 🗃️ 运行时文件
 
 以下路径由应用在部署或运行时生成，通常不纳入版本控制。迁移或备份实例时，可根据实际需要处理这些文件：
 
@@ -119,14 +123,14 @@ docker compose restart proxy
 - `DouYinSparkFlow/webui_settings.json`
 - `DouYinSparkFlow/.im_sdk_cache/`
 
-## GitHub Star 趋势
+## 📈 GitHub Star 趋势
 
 [![GitHub Star 趋势图](https://api.star-history.com/svg?repos=halfwaystudent/douyin-sparkflow&type=Date)](https://star-history.com/#halfwaystudent/douyin-sparkflow&Date)
 
-## 友情链接
+## 🤝 友情链接
 
 - [Linux Do](https://linux.do/)
 
-## 许可
+## 📄 许可
 
 核心应用采用 MIT 协议，详见 [DouYinSparkFlow/LICENSE](DouYinSparkFlow/LICENSE)。
