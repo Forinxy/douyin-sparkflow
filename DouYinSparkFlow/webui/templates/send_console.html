@@ -7,6 +7,10 @@
 
 {% block topbar_actions %}
 <a class="ghost-button" href="/">⌂ 返回首页</a>
+<form method="post" action="/ops/run-unsent">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button class="soft-button" type="submit">补发未成功目标</button>
+</form>
 <form method="post" action="/ops/run-now">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button type="submit">✈ 补发全部对象</button>

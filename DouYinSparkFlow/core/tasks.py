@@ -48,6 +48,10 @@ def _normalize_target_name(value):
 
 
 def _current_run_mode():
+    if _manual_run_unsent_only():
+        return "manual_unsent_only"
+    if _manual_run_failed_only():
+        return "manual_failed_only"
     return "manual" if _is_manual_run() else "scheduled"
 
 
@@ -196,8 +200,26 @@ async def scroll_and_select_user(page, account_name, targets):
     }
     found_usernames = set()
     remaining_targets = set(normalized_targets)
+    scan_started_at = asyncio.get_running_loop().time()
+    last_new_friend_at = scan_started_at
+    max_scan_seconds = 300
+    idle_scan_seconds = 120
+
+    def missing_target_names():
+        return sorted(normalized_targets[item] for item in remaining_targets)
 
     while True:
+        now_monotonic = asyncio.get_running_loop().time()
+        if now_monotonic - scan_started_at > max_scan_seconds:
+            logger.warning(
+                "Account %s friend list scan timed out after %ss. Missing targets: %s; scannedFriends=%s",
+                account_name,
+                max_scan_seconds,
+                missing_target_names(),
+                len(found_usernames),
+            )
+            return
+
         target_elements = await page.locator(target_selector).all()
 
         for element in target_elements:
@@ -214,6 +236,7 @@ async def scroll_and_select_user(page, account_name, targets):
             if normalized_target_name in found_usernames:
                 continue
             found_usernames.add(normalized_target_name)
+            last_new_friend_at = asyncio.get_running_loop().time()
             logger.debug("Account %s found friend entry %s", account_name, target_name)
 
             matched_target_name = normalized_targets.get(normalized_target_name)
@@ -239,7 +262,18 @@ async def scroll_and_select_user(page, account_name, targets):
                 logger.warning(
                     "Account %s reached the end of the friend list. Missing targets: %s",
                     account_name,
-                    sorted(normalized_targets[item] for item in remaining_targets),
+                    missing_target_names(),
+                )
+                return
+
+            now_monotonic = asyncio.get_running_loop().time()
+            if found_usernames and now_monotonic - last_new_friend_at > idle_scan_seconds:
+                logger.warning(
+                    "Account %s friend list scan made no progress for %ss. Missing targets: %s; scannedFriends=%s",
+                    account_name,
+                    idle_scan_seconds,
+                    missing_target_names(),
+                    len(found_usernames),
                 )
                 return
 
@@ -317,6 +351,19 @@ def _manual_run_failed_only():
     return _is_manual_run() and os.getenv("SPARKFLOW_MANUAL_FAILED_ONLY") == "1"
 
 
+def _manual_run_unsent_only():
+    return _is_manual_run() and os.getenv("SPARKFLOW_MANUAL_UNSENT_ONLY") == "1"
+
+
+def _unsent_retry_max_attempts():
+    raw_value = str(os.getenv("SPARKFLOW_UNSENT_RETRY_MAX_ATTEMPTS") or "3").strip()
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        logger.warning("Invalid SPARKFLOW_UNSENT_RETRY_MAX_ATTEMPTS=%r, using 3", raw_value)
+        return 3
+
+
 def _target_sent_today(user, target_name, now):
     history = dict(user.get("message_history") or {})
     entry = history.get(target_name) or {}
@@ -331,6 +378,18 @@ def _target_failed_today(user, target_name, now):
     return bool(last_attempt_at and last_attempt_at.date() == now.date())
 
 
+def _target_failure_attempts_today(user, target_name, now):
+    queue = dict(user.get("failure_queue") or {})
+    entry = queue.get(target_name) or {}
+    last_attempt_at = _parse_sent_at(entry.get("lastAttemptAt"), now.tzinfo)
+    if not last_attempt_at or last_attempt_at.date() != now.date():
+        return 0
+    try:
+        return int(entry.get("attemptCount") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _pending_failed_targets(user, now):
     queue = dict(user.get("failure_queue") or {})
     targets = []
@@ -340,6 +399,21 @@ def _pending_failed_targets(user, now):
         if target_name in queue and _target_failed_today(user, target_name, now):
             targets.append(target_name)
     return targets
+
+
+def _pending_unsent_targets(user, now):
+    retry_targets = []
+    skipped_targets = []
+    max_attempts = _unsent_retry_max_attempts()
+    for target_name in user.get("targets") or []:
+        if _target_sent_today(user, target_name, now):
+            continue
+        attempts_today = _target_failure_attempts_today(user, target_name, now)
+        if attempts_today >= max_attempts:
+            skipped_targets.append(f"{target_name}({attempts_today})")
+            continue
+        retry_targets.append(target_name)
+    return retry_targets, skipped_targets
 
 
 def _scheduled_send_time(user, target_name, send_window, now):
@@ -373,7 +447,8 @@ def _select_due_targets(user, send_window, now):
         second=0,
         microsecond=0,
     )
-    if now < window_start or now > window_end:
+    window_grace_end = window_end + timedelta(minutes=send_window["scheduleIntervalMinutes"])
+    if now < window_start or now > window_grace_end:
         already_sent = []
         pending_targets = []
         queued_failures = []
@@ -428,6 +503,29 @@ def _prepare_active_users_for_run(active_config, active_user_data):
                 runnable_users.append(runnable_user)
         if not runnable_users:
             logger.info("No queued failures are pending for manual retry")
+        return runnable_users
+
+    if _manual_run_unsent_only():
+        logger.info(
+            "SPARKFLOW_MANUAL_RUN=1 and SPARKFLOW_MANUAL_UNSENT_ONLY=1, retrying today's unsent targets only"
+        )
+        runnable_users = []
+        for user in active_user_data:
+            retry_targets, skipped_targets = _pending_unsent_targets(user, now)
+            already_sent = [target for target in user.get("targets") or [] if _target_sent_today(user, target, now)]
+            logger.info(
+                "manual-unsent user=%s retryTargets=%s alreadySentToday=%s skippedMaxAttempts=%s",
+                user.get("username", "unknown"),
+                retry_targets,
+                already_sent,
+                skipped_targets,
+            )
+            if retry_targets:
+                runnable_user = dict(user)
+                runnable_user["targets"] = retry_targets
+                runnable_users.append(runnable_user)
+        if not runnable_users:
+            logger.info("No unsent targets are pending for manual retry")
         return runnable_users
 
     if _is_manual_run():

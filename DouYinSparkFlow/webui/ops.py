@@ -69,11 +69,31 @@ def build_task_run_spec():
     return [sys.executable, "main.py", "--doTask"], repo_root()
 
 
-def build_scheduled_task_command():
+def _env_shell_prefix(extra_env=None):
+    parts = []
+    for key, value in (extra_env or {}).items():
+        parts.append(f"{key}={shlex.quote(str(value))}")
+    return " ".join(parts)
+
+
+def _with_env_prefix(command, extra_env=None):
+    env_prefix = _env_shell_prefix(extra_env)
+    return f"env {env_prefix} {command}" if env_prefix else command
+
+
+def _compose_env_args(extra_env=None):
+    parts = []
+    for key, value in (extra_env or {}).items():
+        parts.extend(["-e", f"{key}={value}"])
+    return " ".join(shlex.quote(part) for part in parts)
+
+
+def build_scheduled_task_command(extra_env=None, trigger_label="scheduled send"):
     if running_in_container():
+        task_command = _with_env_prefix("python main.py --doTask", extra_env)
         return (
             "/bin/bash -lc 'timestamp=$(date -Iseconds); "
-            "echo \"[AUTO_TRIGGER] $timestamp scheduled send start\"; "
+            f"echo \"[AUTO_TRIGGER] $timestamp {trigger_label} start\"; "
             "container=$(docker ps --format \"{{.Names}}\" | "
             "grep -E \"^(douyin-web-hostfix|douyin-web)$\" | head -n 1); "
             "if [ -z \"$container\" ]; then "
@@ -82,21 +102,35 @@ def build_scheduled_task_command():
             "fi; "
             "echo \"[AUTO_TRIGGER] $timestamp container=$container\"; "
             "docker exec \"$container\" sh -lc "
-            "\"cd /app && python main.py --doTask\"'"
+            f"\"cd /app && {task_command}\"'"
         )
     if compose_file_path():
         compose_root_quoted = shlex.quote(str(compose_root()))
+        compose_env_args = _compose_env_args(extra_env)
+        compose_env_suffix = f" {compose_env_args}" if compose_env_args else ""
         return (
             "/bin/bash -lc "
-            f"'echo \"[AUTO_TRIGGER] $(date -Iseconds) compose task start\"; "
-            f"cd {compose_root_quoted} && /usr/bin/docker compose run --rm task'"
+            f"'echo \"[AUTO_TRIGGER] $(date -Iseconds) compose {trigger_label} start\"; "
+            f"cd {compose_root_quoted} && /usr/bin/docker compose run --rm{compose_env_suffix} task'"
         )
     repo_root_quoted = shlex.quote(str(repo_root()))
     python_quoted = shlex.quote(sys.executable)
+    task_command = _with_env_prefix(f"{python_quoted} main.py --doTask", extra_env)
     return (
         "/bin/bash -lc "
-        f"'echo \"[AUTO_TRIGGER] $(date -Iseconds) local task start\"; "
-        f"cd {repo_root_quoted} && {python_quoted} main.py --doTask'"
+        f"'echo \"[AUTO_TRIGGER] $(date -Iseconds) local {trigger_label} start\"; "
+        f"cd {repo_root_quoted} && {task_command}'"
+    )
+
+
+def build_unsent_fallback_task_command():
+    return build_scheduled_task_command(
+        {
+            "SPARKFLOW_MANUAL_RUN": "1",
+            "SPARKFLOW_MANUAL_UNSENT_ONLY": "1",
+            "PYTHONUNBUFFERED": "1",
+        },
+        trigger_label="unsent fallback",
     )
 
 
@@ -204,24 +238,31 @@ def get_task_container_rows():
         return []
 
 
-def run_task_now():
+def run_task_now(*, unsent_only=False):
     try:
         log_file = Path(get_app_settings().get("ops_log_file") or "/var/log/douyin-sparkflow.log")
         command, cwd = build_task_run_spec()
+        run_env = {
+            "SPARKFLOW_MANUAL_RUN": "1",
+            "PYTHONUNBUFFERED": "1",
+        }
+        if unsent_only:
+            run_env["SPARKFLOW_MANUAL_UNSENT_ONLY"] = "1"
         return run_background_command(
             command,
             log_file,
             cwd=cwd,
-            env={
-                "SPARKFLOW_MANUAL_RUN": "1",
-                "PYTHONUNBUFFERED": "1",
-            },
+            env=run_env,
         )
     except Exception as exc:
         import traceback
         Path("task_error.txt").write_text(traceback.format_exc(), encoding="utf-8")
         logger.error("run_task_now failed: %s", exc)
         return -1
+
+
+def run_unsent_retry_now():
+    return run_task_now(unsent_only=True)
 
 
 def refresh_proxy():
@@ -308,6 +349,7 @@ def validate_time_string(time_string):
 def replace_douyin_cron_schedule(crontab_text, time_string):
     schedule = parse_schedule_string(time_string)
     scheduled_command = build_scheduled_task_command()
+    fallback_command = build_unsent_fallback_task_command()
     updated = []
 
     for raw_line in crontab_text.splitlines():
@@ -324,6 +366,10 @@ def replace_douyin_cron_schedule(crontab_text, time_string):
         updated.append(
             f"0 {schedule['endHour']} * * * "
             f"{scheduled_command} >> /var/log/douyin-sparkflow.log 2>&1"
+        )
+        updated.append(
+            f"{schedule['scheduleIntervalMinutes']} {schedule['endHour']} * * * "
+            f"{fallback_command} >> /var/log/douyin-sparkflow.log 2>&1"
         )
     else:
         updated.append(

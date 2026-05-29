@@ -3,6 +3,9 @@
   "taskCount": 1,
   "proxyAddress": "",
   "messageTemplate": "🤩今日火花+1\r\n",
+  "saveDebugArtifacts": false,
+  "useProtocolSender": false,
+  "protocolDryRun": false,
   "browserSenderAccounts": [
     "94262577168",
     "抖音号：softwomen"

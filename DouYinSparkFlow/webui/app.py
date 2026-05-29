@@ -39,7 +39,15 @@ from webui.auth import (
     validate_csrf,
     verify_password,
 )
-from webui.ops import get_ops_snapshot, read_log_tail, refresh_proxy, restart_proxy, run_task_now, update_daily_schedule
+from webui.ops import (
+    get_ops_snapshot,
+    read_log_tail,
+    refresh_proxy,
+    restart_proxy,
+    run_task_now,
+    run_unsent_retry_now,
+    update_daily_schedule,
+)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -579,6 +587,23 @@ def create_app():
         else:
             flash(request, f"Triggered a full resend run in the background (pid {pid}).", "success")
         return redirect("/")
+
+    @app.post("/ops/run-unsent")
+    async def run_unsent(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        pid = run_unsent_retry_now()
+        if pid == -1:
+            flash(request, "Failed to start the unsent-target fallback run. Check server logs for details.", "error")
+        else:
+            flash(request, f"Triggered an unsent-target fallback run in the background (pid {pid}).", "success")
+        return redirect("/ops/send-console")
 
     @app.post("/ops/proxy/refresh")
     async def proxy_refresh(request: Request):

@@ -7,6 +7,10 @@
 
 {% block topbar_actions %}
 <a class="ghost-button" href="/ops/send-console">✦ 发送控制台</a>
+<form method="post" action="/ops/run-unsent">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button class="soft-button" type="submit">补发未成功目标</button>
+</form>
 <form method="post" action="/ops/run-now">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <button type="submit">✈ 补发全部对象</button>
@@ -404,6 +408,17 @@
     padding: 9px 10px;
   }
 
+  .friend-option input[type="checkbox"] {
+    position: static;
+    inset: auto;
+    width: 16px;
+    height: 16px;
+    opacity: 1;
+    pointer-events: auto;
+    accent-color: var(--primary);
+    flex: 0 0 auto;
+  }
+
   .friend-option.selected {
     background: var(--primary-soft);
     border-color: rgba(47, 103, 255, 0.12);
@@ -713,10 +728,10 @@
                 <span>启用自动续火花</span>
               </label>
               <label>
-                <span>手动目标好友（每行一个）</span>
-                <textarea name="targets" rows="5">{{ account.targets|default([], true)|join('\n') }}</textarea>
+                <span>目标好友（每行一个，可手动编辑或从下方勾选）</span>
+                <textarea class="targets-textarea" name="targets" rows="5">{{ account.targets|default([], true)|join('\n') }}</textarea>
               </label>
-              <p class="muted compact">如果好友过多无法滚动读取，可直接在这里填写目标昵称并保存。</p>
+              <p class="muted compact">未在好友缓存中的昵称也会保留在目标列表里。</p>
 
               <div class="friend-picker"
                    data-account-id="{{ account.unique_id }}"
@@ -866,6 +881,10 @@
           </div>
         </div>
         <div class="button-grid">
+          <form method="post" action="/ops/run-unsent">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="soft-button" type="submit">补发未成功目标</button>
+          </form>
           <form method="post" action="/ops/run-now">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit">补发全部对象</button>
@@ -1164,6 +1183,9 @@
       const summaryEl = picker.querySelector(".friend-picker-summary");
       const statusEl = picker.querySelector(".friend-picker-status");
       const hiddenInputsEl = picker.querySelector(".friend-selected-inputs");
+      const formEl = picker.closest("form");
+      const targetsTextarea = formEl?.querySelector(".targets-textarea");
+      const currentTargetsEl = picker.querySelector(".friend-picker-current-targets span");
 
       let friends = parseJsonScript(`friends-cache-${accountId}`);
       let selected = new Set(parseJsonScript(`selected-targets-${accountId}`));
@@ -1179,6 +1201,31 @@
         return merged;
       };
 
+      const splitTargetText = (value) => {
+        const seen = new Set();
+        return String(value || "")
+          .replaceAll(",", "\n")
+          .split(/\r?\n/)
+          .map((name) => name.trim())
+          .filter((name) => {
+            if (!name || seen.has(name)) return false;
+            seen.add(name);
+            return true;
+          });
+      };
+
+      const syncTextareaFromSelected = () => {
+        if (targetsTextarea) {
+          targetsTextarea.value = [...selected].join("\n");
+        }
+      };
+
+      const syncSelectedFromTextarea = () => {
+        if (targetsTextarea) {
+          selected = new Set(splitTargetText(targetsTextarea.value));
+        }
+      };
+
       const renderHiddenInputs = () => {
         hiddenInputsEl.innerHTML = "";
         [...selected].forEach((name) => {
@@ -1192,6 +1239,9 @@
 
       const updateSummary = () => {
         summaryEl.textContent = `已选 ${selected.size} 人`;
+        if (currentTargetsEl) {
+          currentTargetsEl.textContent = selected.size ? [...selected].join("、") : "未选择";
+        }
       };
 
       const renderList = () => {
@@ -1229,6 +1279,7 @@
               selected.delete(value);
               option?.classList.remove("selected");
             }
+            syncTextareaFromSelected();
             renderHiddenInputs();
             updateSummary();
           });
@@ -1264,6 +1315,13 @@
       });
 
       searchInput.addEventListener("input", renderList);
+      if (targetsTextarea) {
+        targetsTextarea.addEventListener("input", () => {
+          syncSelectedFromTextarea();
+          renderList();
+        });
+      }
+      syncSelectedFromTextarea();
       renderList();
     });
   })();
