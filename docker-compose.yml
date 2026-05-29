@@ -9,10 +9,10 @@ services:
         max-size: "20m"
         max-file: "3"
     ports:
-      - "7890:7890"
-      - "9090:9090"
+      - "${PROXY_HTTP_PORT:-7890}:7890"
+      - "${PROXY_CONTROLLER_PORT:-9090}:9090"
     volumes:
-      - ./proxy/config.yaml:/root/.config/mihomo/config.yaml
+      - ./proxy/config.yaml:/root/.config/mihomo/config.yaml:ro
 
   web:
     build:
@@ -20,9 +20,14 @@ services:
       dockerfile: Dockerfile.server
       network: host
       args:
-        HTTP_PROXY: http://127.0.0.1:7890
-        HTTPS_PROXY: http://127.0.0.1:7890
-        ALL_PROXY: socks5://127.0.0.1:7890
+        HTTP_PROXY: ${HTTP_PROXY_BUILD:-}
+        HTTPS_PROXY: ${HTTPS_PROXY_BUILD:-}
+        ALL_PROXY: ${ALL_PROXY_BUILD:-}
+        http_proxy: ${HTTP_PROXY_BUILD:-}
+        https_proxy: ${HTTPS_PROXY_BUILD:-}
+        all_proxy: ${ALL_PROXY_BUILD:-}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
     image: douyin-sparkflow:local
     container_name: douyin-web
     restart: unless-stopped
@@ -30,20 +35,22 @@ services:
       - proxy
       - login-desktop
     environment:
-      TZ: Asia/Shanghai
+      TZ: ${TZ:-Asia/Shanghai}
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
       NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
+      SPARKFLOW_LOGIN_DESKTOP_API_URL: http://login-desktop:18090
+      LOGIN_DESKTOP_PUBLIC_PORT: ${LOGIN_DESKTOP_WEB_PORT:-8788}
     ports:
-      - "8787:8787"
+      - "${WEB_PORT:-8787}:8787"
     command: python main.py --web --host 0.0.0.0 --port 8787
     volumes:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
+      - ./state/cron:/host-spool-cron
       - /var/run/docker.sock:/var/run/docker.sock
-      - /opt/douyin-sparkflow:/opt/douyin-sparkflow
-      - /var/spool/cron/root:/var/spool/cron/crontabs/root
+      - .:/opt/douyin-sparkflow
 
   login-desktop:
     image: douyin-sparkflow:local
@@ -52,19 +59,37 @@ services:
     depends_on:
       - proxy
     environment:
-      TZ: Asia/Shanghai
+      TZ: ${TZ:-Asia/Shanghai}
       DISPLAY: :99
+      LOGIN_DESKTOP_API_PORT: "18090"
+      LOGIN_DESKTOP_WEB_PORT: "6080"
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
       NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     ports:
-      - "8788:6080"
+      - "${LOGIN_DESKTOP_WEB_PORT:-8788}:6080"
     command: bash /app/scripts/start_login_desktop.sh
     volumes:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
       - ./state/login-profile:/data/login-profile
+
+  scheduler:
+    image: douyin-sparkflow:local
+    container_name: douyin-scheduler
+    restart: unless-stopped
+    depends_on:
+      - web
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      PYTHONUNBUFFERED: "1"
+    command: python /app/scripts/cron_runner.py /host-spool-cron/root
+    volumes:
+      - ./DouYinSparkFlow:/app
+      - ./DouYinSparkFlow/logs:/app/logs
+      - ./state/cron:/host-spool-cron
+      - /var/run/docker.sock:/var/run/docker.sock
 
   task:
     image: douyin-sparkflow:local
@@ -72,7 +97,7 @@ services:
     depends_on:
       - proxy
     environment:
-      TZ: Asia/Shanghai
+      TZ: ${TZ:-Asia/Shanghai}
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890

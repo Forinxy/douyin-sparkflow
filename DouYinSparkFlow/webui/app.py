@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -132,13 +133,14 @@ def _target_sent_today(account, target_name):
 
 def login_desktop_api_url():
     settings = get_app_settings(force_reload=True)
-    return str(settings.get("login_desktop_api_url") or "http://127.0.0.1:18090").rstrip("/")
+    return str(os.getenv("SPARKFLOW_LOGIN_DESKTOP_API_URL") or settings.get("login_desktop_api_url") or "http://127.0.0.1:18090").rstrip("/")
 
 
 def login_desktop_public_url(request: Request) -> str:
     host = request.url.hostname or "127.0.0.1"
     scheme = request.url.scheme or "http"
-    return f"{scheme}://{host}:8788/vnc.html?autoconnect=1&resize=scale&view_only=0"
+    port = str(os.getenv("LOGIN_DESKTOP_PUBLIC_PORT") or "8788").strip() or "8788"
+    return f"{scheme}://{host}:{port}/vnc.html?autoconnect=1&resize=scale&view_only=0"
 
 
 def call_login_desktop(path: str, *, method: str = "GET", payload: dict | None = None, timeout: int = 20) -> dict:
