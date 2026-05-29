@@ -20,6 +20,9 @@ run_root() {
 }
 
 install_base_tools() {
+  if command -v curl >/dev/null 2>&1 && command -v git >/dev/null 2>&1 && command -v gpg >/dev/null 2>&1; then
+    return
+  fi
   if command -v apt-get >/dev/null 2>&1; then
     run_root apt-get update
     run_root apt-get install -y ca-certificates curl git gnupg
@@ -61,9 +64,10 @@ ensure_docker() {
 prepare_repo() {
   run_root mkdir -p "$(dirname "$APP_ROOT")"
   if [ -d "$APP_ROOT/.git" ]; then
+    run_root git -C "$APP_ROOT" reset --hard
     run_root git -C "$APP_ROOT" fetch origin "$BRANCH"
-    run_root git -C "$APP_ROOT" checkout "$BRANCH"
-    run_root git -C "$APP_ROOT" pull --ff-only origin "$BRANCH"
+    run_root git -C "$APP_ROOT" checkout -B "$BRANCH" "origin/$BRANCH"
+    run_root git -C "$APP_ROOT" reset --hard "origin/$BRANCH"
   else
     run_root git clone --branch "$BRANCH" "$REPO_URL" "$APP_ROOT"
   fi
@@ -124,7 +128,7 @@ main() {
   prepare_runtime_files
   cd "$APP_ROOT"
   run_root bash "$APP_ROOT/refresh_proxy.sh"
-  run_root docker compose up -d --build
+  run_root env DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 docker compose up -d --build
 
   local web_port login_port host_ip
   web_port="$(grep '^WEB_PORT=' "$APP_ROOT/.env" | sed 's/^WEB_PORT=//')"

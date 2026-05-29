@@ -88,22 +88,20 @@ def _compose_env_args(extra_env=None):
     return " ".join(shlex.quote(part) for part in parts)
 
 
+def _ops_log_file():
+    return str(get_app_settings().get("ops_log_file") or "/app/logs/douyin-sparkflow.log")
+
+
 def build_scheduled_task_command(extra_env=None, trigger_label="scheduled send"):
     if running_in_container():
         task_command = _with_env_prefix("python main.py --doTask", extra_env)
-        return (
-            "/bin/bash -lc 'timestamp=$(date -Iseconds); "
+        repo_root_quoted = shlex.quote(str(repo_root()))
+        script = (
+            "timestamp=$(date -Iseconds); "
             f"echo \"[AUTO_TRIGGER] $timestamp {trigger_label} start\"; "
-            "container=$(docker ps --format \"{{.Names}}\" | "
-            "grep -E \"^(douyin-web-hostfix|douyin-web)$\" | head -n 1); "
-            "if [ -z \"$container\" ]; then "
-            "echo \"[AUTO_TRIGGER] $timestamp no matching container found\"; "
-            "exit 1; "
-            "fi; "
-            "echo \"[AUTO_TRIGGER] $timestamp container=$container\"; "
-            "docker exec \"$container\" sh -lc "
-            f"\"cd /app && {task_command}\"'"
+            f"cd {repo_root_quoted} && {task_command}"
         )
+        return f"/bin/bash -lc {shlex.quote(script)}"
     if compose_file_path():
         compose_root_quoted = shlex.quote(str(compose_root()))
         compose_env_args = _compose_env_args(extra_env)
@@ -240,7 +238,7 @@ def get_task_container_rows():
 
 def run_task_now(*, unsent_only=False):
     try:
-        log_file = Path(get_app_settings().get("ops_log_file") or "/var/log/douyin-sparkflow.log")
+        log_file = Path(_ops_log_file())
         command, cwd = build_task_run_spec()
         run_env = {
             "SPARKFLOW_MANUAL_RUN": "1",
@@ -285,7 +283,7 @@ def restart_proxy():
 
 
 def read_log_tail(lines=200):
-    log_path = Path(get_app_settings().get("ops_log_file") or "/var/log/douyin-sparkflow.log")
+    log_path = Path(_ops_log_file())
     if not log_path.exists():
         return ""
     content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -350,6 +348,7 @@ def replace_douyin_cron_schedule(crontab_text, time_string):
     schedule = parse_schedule_string(time_string)
     scheduled_command = build_scheduled_task_command()
     fallback_command = build_unsent_fallback_task_command()
+    log_redirect = f" >> {shlex.quote(_ops_log_file())} 2>&1"
     updated = []
 
     for raw_line in crontab_text.splitlines():
@@ -361,20 +360,20 @@ def replace_douyin_cron_schedule(crontab_text, time_string):
     if schedule["mode"] == "window":
         updated.append(
             f"*/{schedule['scheduleIntervalMinutes']} {schedule['startHour']}-{schedule['endHour'] - 1} * * * "
-            f"{scheduled_command} >> /var/log/douyin-sparkflow.log 2>&1"
+            f"{scheduled_command}{log_redirect}"
         )
         updated.append(
             f"0 {schedule['endHour']} * * * "
-            f"{scheduled_command} >> /var/log/douyin-sparkflow.log 2>&1"
+            f"{scheduled_command}{log_redirect}"
         )
         updated.append(
             f"{schedule['scheduleIntervalMinutes']} {schedule['endHour']} * * * "
-            f"{fallback_command} >> /var/log/douyin-sparkflow.log 2>&1"
+            f"{fallback_command}{log_redirect}"
         )
     else:
         updated.append(
             f"{schedule['minute']} {schedule['hour']} * * * "
-            f"{scheduled_command} >> /var/log/douyin-sparkflow.log 2>&1"
+            f"{scheduled_command}{log_redirect}"
         )
 
     normalized = "\n".join(line for line in updated if line.strip())

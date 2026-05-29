@@ -50,7 +50,6 @@ services:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
       - ./state/cron:/host-spool-cron
-      - /var/run/docker.sock:/var/run/docker.sock
       - .:/opt/douyin-sparkflow
 
   login-desktop:
@@ -85,12 +84,15 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PYTHONUNBUFFERED: "1"
+      HTTP_PROXY: http://proxy:7890
+      HTTPS_PROXY: http://proxy:7890
+      ALL_PROXY: socks5://proxy:7890
+      NO_PROXY: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     command: python /app/scripts/cron_runner.py /host-spool-cron/root
     volumes:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
       - ./state/cron:/host-spool-cron
-      - /var/run/docker.sock:/var/run/docker.sock
 
   task:
     image: douyin-sparkflow:local
@@ -99,6 +101,7 @@ services:
       - proxy
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      PYTHONUNBUFFERED: "1"
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
