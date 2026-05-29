@@ -14,6 +14,10 @@ Douyin SparkFlow 提供一个面向个人自用场景的抖音火花维护工具
 - 🌐 可选 Mihomo/Clash 代理订阅配置。
 - 🐳 Docker Compose 编排 Web、登录桌面、定时器、任务和代理服务。
 
+## 🖼️ 界面预览
+
+![Douyin SparkFlow 控制台界面预览](docs/images/ui-preview.png)
+
 ## ⚠️ 免责声明
 
 本项目仅用于个人学习、研究和自用场景，不是抖音、字节跳动或相关平台的官方工具，也未获得其授权、背书或关联。

@@ -7,3 +7,4 @@
 - Refined the root README wording and structure for an open source project style.
 - Reordered the disclaimer and star history chart, and refined runtime file wording.
 - Added upstream project attribution and emoji-styled README sections.
+- Added a masked UI preview image to the root README.
