@@ -19,7 +19,7 @@ Douyin SparkFlow 提供一个面向个人自用场景的抖音火花维护工具
 
 ![Douyin SparkFlow 控制台界面预览](docs/images/ui-preview.png)
 
-新版 Web 面板将概览、登录工作区、账号与目标、运行与系统拆成独立视图。完整流程见 [使用教程](docs/usage.md)。
+> 📘 **截图教程：** 新版 Web 面板将概览、登录工作区、账号与目标、运行与系统拆成独立视图。按截图完成首次配置，请直接阅读 [Douyin SparkFlow 使用教程](docs/usage.md)。
 
 ## ⚠️ 免责声明
 
@@ -93,8 +93,6 @@ docker compose ps
 3. 保存登录态。
 4. 刷新好友列表并选择目标好友。
 5. 设置发送窗口，例如 `10:00-18:00/10m`。
-
-截图版操作流程见 [使用教程](docs/usage.md)。
 
 ## 💻 本地运行
 

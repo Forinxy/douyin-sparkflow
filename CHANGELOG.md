@@ -8,6 +8,7 @@
 - Removed the redundant send-console navigation label while keeping send details available from contextual actions.
 - Added a persistent sun/moon toggle for switching between light and dark console themes.
 - Updated the README preview image and added a screenshot-based usage guide.
+- Made the screenshot usage guide entry more visible in the README.
 - Added a project disclaimer to the root README.
 - Added a Linux Do friendly link and GitHub star history chart.
 - Refined the root README wording and structure for an open source project style.
