@@ -32,22 +32,56 @@ Douyin SparkFlow 提供一个面向个人自用场景的抖音火花维护工具
 
 ## 🚀 快速开始
 
-在服务器上运行：
+在服务器上推荐使用这条一键安装命令，适合 `raw.githubusercontent.com` 访问较慢或超时的环境：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/halfwaystudent/douyin-sparkflow/main/deploy/install-server.sh | bash
+apt update && apt install -y git curl gnupg ca-certificates && rm -rf /opt/douyin-sparkflow && git clone --depth=1 https://github.com/halfwaystudent/douyin-sparkflow.git /opt/douyin-sparkflow && cd /opt/douyin-sparkflow && bash deploy/install-server.sh
+```
+
+如果 GitHub 克隆时出现 `GnuTLS recv error`，先切到 HTTP/1.1 后重试：
+
+```bash
+git config --global http.version HTTP/1.1
+git config --global http.lowSpeedLimit 1000
+git config --global http.lowSpeedTime 60
 ```
 
 指定安装目录或代理订阅：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/halfwaystudent/douyin-sparkflow/main/deploy/install-server.sh | APP_ROOT=/opt/douyin-sparkflow PROXY_SUB_URL='你的 Mihomo/Clash 订阅链接' bash
+APP_ROOT=/opt/douyin-sparkflow PROXY_SUB_URL='你的 Mihomo/Clash 订阅链接' bash -c 'apt update && apt install -y git curl gnupg ca-certificates && rm -rf "$APP_ROOT" && git clone --depth=1 https://github.com/halfwaystudent/douyin-sparkflow.git "$APP_ROOT" && cd "$APP_ROOT" && bash deploy/install-server.sh'
 ```
 
-部署完成后访问：
+如果你的服务器可以稳定访问 `raw.githubusercontent.com`，也可以使用精简版：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/halfwaystudent/douyin-sparkflow/main/deploy/install-server.sh | bash
+```
+
+部署完成后检查容器状态：
+
+```bash
+cd /opt/douyin-sparkflow
+docker compose ps
+```
+
+正常状态应包含：
+
+- `douyin-web`：`Up`，Web 面板服务。
+- `login-desktop`：`Up`，扫码登录桌面。
+- `douyin-scheduler`：`Up`，定时发送和自动兜底。
+- `mihomo`：`Up`，代理服务。
+- `douyin-task`：`Exited` 或 `Stopped` 是正常的，它是一次性手动任务容器，不需要常驻。
+
+确认 `douyin-web` 已启动后访问：
 
 - Web 面板：`http://服务器IP:8787`
 - 登录桌面：Web 面板中的“登录桌面”入口，默认端口 `8788`
+
+如果外网打不开 Web 面板，请在云服务器安全组、轻量云防火墙或 1Panel 防火墙中放行：
+
+- `8787/tcp`：Web 管理面板。
+- `8788/tcp`：扫码登录桌面。
 
 首次使用：
 
