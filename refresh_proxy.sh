@@ -62,8 +62,14 @@ ensure_line "bind-address" "'*'"
 ensure_line "external-controller" "'0.0.0.0:9090'"
 
 if command -v docker >/dev/null 2>&1 && [ -f "$APP_ROOT/docker-compose.yml" ]; then
-  proxy_id="$(docker compose -f "$APP_ROOT/docker-compose.yml" ps -q proxy 2>/dev/null || true)"
-  if [ -n "$proxy_id" ]; then
-    docker compose -f "$APP_ROOT/docker-compose.yml" restart proxy
+  if docker compose version >/dev/null 2>&1; then
+    proxy_id="$(docker compose -f "$APP_ROOT/docker-compose.yml" ps -q proxy 2>/dev/null || true)"
+    if [ -n "${proxy_id:-}" ]; then
+      docker compose -f "$APP_ROOT/docker-compose.yml" restart proxy
+    fi
+  else
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx mihomo; then
+      docker restart mihomo
+    fi
   fi
 fi
