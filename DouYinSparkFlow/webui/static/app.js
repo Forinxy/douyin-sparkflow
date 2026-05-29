@@ -1,4 +1,58 @@
 (() => {
+  const storageKey = "sparkflow-theme";
+  const root = document.documentElement;
+
+  const readStoredTheme = () => {
+    try {
+      return window.localStorage.getItem(storageKey);
+    } catch {
+      return null;
+    }
+  };
+
+  const writeStoredTheme = (theme) => {
+    try {
+      window.localStorage.setItem(storageKey, theme);
+    } catch {
+      // Ignore storage restrictions; the current page can still switch theme.
+    }
+  };
+
+  const preferredTheme = () => {
+    const stored = readStoredTheme();
+    if (stored === "dark" || stored === "light") return stored;
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  };
+
+  const applyTheme = (theme) => {
+    const normalized = theme === "dark" ? "dark" : "light";
+    root.dataset.theme = normalized;
+    root.style.colorScheme = normalized;
+    const nextLabel = normalized === "dark" ? "切换白天模式" : "切换黑夜模式";
+    document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
+      button.setAttribute("aria-label", nextLabel);
+      button.setAttribute("title", nextLabel);
+      button.setAttribute(
+        "aria-pressed",
+        normalized === "dark" ? "true" : "false",
+      );
+    });
+  };
+
+  applyTheme(preferredTheme());
+
+  document.querySelectorAll("[data-theme-toggle]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const next = root.dataset.theme === "dark" ? "light" : "dark";
+      writeStoredTheme(next);
+      applyTheme(next);
+    });
+  });
+})();
+
+(() => {
   const body = document.body;
   const navToggle = document.querySelector("[data-nav-toggle]");
   const navClose = document.querySelector("[data-nav-close]");

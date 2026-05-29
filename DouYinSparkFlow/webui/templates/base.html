@@ -22,6 +22,16 @@
           <span class="brand-mark">⚡</span>
           <span>自动续火花</span>
         </div>
+        <button
+          type="button"
+          class="theme-toggle"
+          data-theme-toggle
+          aria-label="切换黑夜模式"
+          title="切换黑夜模式"
+        >
+          <span class="theme-icon theme-sun" aria-hidden="true">☀</span>
+          <span class="theme-icon theme-moon" aria-hidden="true">☾</span>
+        </button>
       </div>
 
       <div class="sidebar-backdrop" data-nav-close></div>
@@ -31,7 +41,7 @@
           <div class="brand-mark">⚡</div>
           <div>
             <div class="brand-title">自动续火花</div>
-            <div class="brand-subtitle">多账号发送控制台</div>
+            <div class="brand-subtitle">多账号运维面板</div>
           </div>
         </div>
 
@@ -49,13 +59,6 @@
 
           <section class="nav-group">
             <p class="nav-group-title">发送</p>
-            <a
-              class="nav-item {% if current_nav|trim == 'send_console' %}active{% endif %}"
-              href="/ops/send-console"
-            >
-              <span class="nav-icon">✦</span>
-              <span>发送控制台</span>
-            </a>
             <a
               class="nav-item {% if current_nav|trim == 'login_workspace' %}active{% endif %}"
               href="/login-workspace"
@@ -117,6 +120,16 @@
             </div>
           </div>
           <div class="page-header-actions">
+            <button
+              type="button"
+              class="theme-toggle"
+              data-theme-toggle
+              aria-label="切换黑夜模式"
+              title="切换黑夜模式"
+            >
+              <span class="theme-icon theme-sun" aria-hidden="true">☀</span>
+              <span class="theme-icon theme-moon" aria-hidden="true">☾</span>
+            </button>
             {% block topbar_actions %}{% endblock %}
           </div>
         </header>
