@@ -436,6 +436,12 @@ h3 {
   align-items: start;
 }
 
+.layout-grid > *,
+.dashboard-layout > *,
+.settings-layout > * {
+  min-width: 0;
+}
+
 .content-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1200,6 +1206,8 @@ tbody tr:last-child td {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .layout-grid,
+  .dashboard-layout,
   .content-grid,
   .account-list,
   .account-grid {
