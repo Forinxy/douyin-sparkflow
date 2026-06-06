@@ -9,6 +9,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from core.browser import get_browser
+from core.friends import (
+    FRIEND_NAME_SELECTOR,
+    LOADING_SELECTOR,
+    NO_MORE_SELECTOR,
+    _find_scrollable_friends_element,
+    _open_friends_tab,
+    _wait_for_friend_name_or_empty,
+)
 from core.msg_builder import build_message
 from core.protocol_dispatch import run_protocol_tasks
 from utils.config import get_config, get_userData, normalize_unique_id, save_userData
@@ -147,6 +155,8 @@ def classify_browser_failure(stage, exc):
     detail = str(exc or "")
     lowered = detail.lower()
 
+    if "登录" in detail or "login" in lowered or "passport" in lowered:
+        return "login_expired"
     if "page crashed" in lowered or "target page, context or browser has been closed" in lowered:
         return "page_crashed"
     if "timeout" in lowered:
@@ -157,9 +167,11 @@ def classify_browser_failure(stage, exc):
         if stage == "friend_list":
             return "friend_list_timeout"
         return "timeout"
+    if "未找到“朋友私信”入口" in detail:
+        return "friend_tab_not_found"
     if "unable to locate chat input" in lowered:
         return "chat_input_not_found"
-    if "could not find the friend list scroll container" in lowered:
+    if "could not find the friend list scroll container" in lowered or "未找到好友列表滚动容器" in detail:
         return "friend_list_container_missing"
     if "chat input still contains" in lowered:
         return "send_unconfirmed"
@@ -170,27 +182,43 @@ def classify_browser_failure(stage, exc):
     return "unknown"
 
 
+async def _click_friend_entry(name_locator, account_name, target_name):
+    click_candidates = (
+        "xpath=ancestor::li[1]",
+        'xpath=ancestor::div[contains(@class, "semi-list-item")][1]',
+        'xpath=ancestor::div[contains(@class, "semi-list-item-body")][1]',
+        'xpath=ancestor::*[@role="listitem"][1]',
+        "xpath=ancestor::div[3]",
+    )
+
+    last_error = None
+    for selector in click_candidates:
+        try:
+            entry = name_locator.locator(selector).first
+            if await entry.count() == 0:
+                continue
+            await entry.scroll_into_view_if_needed(timeout=5000)
+            await entry.click(timeout=5000)
+            return
+        except Exception as exc:
+            last_error = exc
+
+    try:
+        await name_locator.scroll_into_view_if_needed(timeout=5000)
+        await name_locator.click(timeout=5000)
+    except Exception as exc:
+        raise RuntimeError(
+            f"Account {account_name} found target friend {target_name}, but could not click the friend entry: {exc}"
+        ) from (last_error or exc)
+
+
 async def scroll_and_select_user(page, account_name, targets):
-    friends_tab_selector = 'xpath=//*[@id="sub-app"]/div/div/div[1]/div[2]'
-    target_selector = (
-        'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]'
-        '//div[contains(@class, "semi-list-item-body semi-list-item-body-flex-start")]'
-    )
-    scrollable_friends_selector = (
-        'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]/div/div/div[3]/div/div/div/ul/div'
-    )
-    no_more_selector = 'xpath=//div[contains(@class, "no-more-tip-ftdJnu")]'
-    loading_selector = 'xpath=//div[contains(@class, "semi-spin")]'
-    first_friend_selector = (
-        'xpath=//*[@id="sub-app"]/div/div/div[2]/div[2]/div/div/div[1]/div/div/div/ul/div/div/div[1]/li/div'
-    )
-
     logger.debug("Account %s is opening the friends tab", account_name)
-    await page.wait_for_selector(friends_tab_selector)
-    await page.locator(friends_tab_selector).click()
-
-    await page.wait_for_selector(first_friend_selector)
-    await page.locator(first_friend_selector).click()
+    await _open_friends_tab(page)
+    has_friends = await _wait_for_friend_name_or_empty(page, timeout_ms=45000)
+    if not has_friends:
+        logger.warning("Account %s friend list is empty or unavailable", account_name)
+        return
     await asyncio.sleep(2)
 
     normalized_targets = {
@@ -204,9 +232,14 @@ async def scroll_and_select_user(page, account_name, targets):
     last_new_friend_at = scan_started_at
     max_scan_seconds = 300
     idle_scan_seconds = 120
+    stuck_rounds = 0
 
     def missing_target_names():
         return sorted(normalized_targets[item] for item in remaining_targets)
+
+    if not remaining_targets:
+        logger.info("Account %s has no normalized target friends to scan", account_name)
+        return
 
     while True:
         now_monotonic = asyncio.get_running_loop().time()
@@ -220,12 +253,11 @@ async def scroll_and_select_user(page, account_name, targets):
             )
             return
 
-        target_elements = await page.locator(target_selector).all()
+        name_elements = await page.locator(FRIEND_NAME_SELECTOR).all()
 
-        for element in target_elements:
+        for name_locator in name_elements:
             try:
-                span = element.locator("""xpath=.//span[contains(@class, "item-header-name-")]""")
-                target_name = await span.inner_text()
+                target_name = (await name_locator.inner_text(timeout=3000)).strip()
             except Exception:
                 continue
 
@@ -241,7 +273,7 @@ async def scroll_and_select_user(page, account_name, targets):
 
             matched_target_name = normalized_targets.get(normalized_target_name)
             if matched_target_name:
-                await element.click()
+                await _click_friend_entry(name_locator, account_name, target_name)
                 logger.info("Account %s selected target friend %s", account_name, target_name)
                 if matched_target_name != target_name:
                     logger.info(
@@ -258,7 +290,8 @@ async def scroll_and_select_user(page, account_name, targets):
                     return
                 break
         else:
-            if await page.locator(no_more_selector).count() > 0:
+            no_more = page.locator(NO_MORE_SELECTOR).first
+            if await no_more.count() > 0 and await no_more.is_visible():
                 logger.warning(
                     "Account %s reached the end of the friend list. Missing targets: %s",
                     account_name,
@@ -277,16 +310,31 @@ async def scroll_and_select_user(page, account_name, targets):
                 )
                 return
 
-            if await page.locator(loading_selector).count() > 0:
+            loading = page.locator(LOADING_SELECTOR).first
+            if await loading.count() > 0 and await loading.is_visible():
                 logger.debug("Account %s is waiting for more friends to load", account_name)
                 await asyncio.sleep(1.5)
 
-            scrollable_element = await page.locator(scrollable_friends_selector).element_handle()
+            scrollable_element = await _find_scrollable_friends_element(page)
             if not scrollable_element:
                 raise RuntimeError(f"Account {account_name} could not find the friend list scroll container")
 
+            before_top = await page.evaluate("(element) => element.scrollTop", scrollable_element)
             await page.evaluate("(element) => element.scrollTop += 800", scrollable_element)
             await asyncio.sleep(1.5)
+            after_top = await page.evaluate("(element) => element.scrollTop", scrollable_element)
+            if after_top > before_top:
+                stuck_rounds = 0
+            else:
+                stuck_rounds += 1
+                if stuck_rounds >= 3:
+                    logger.warning(
+                        "Account %s friend list stopped scrolling. Missing targets: %s; scannedFriends=%s",
+                        account_name,
+                        missing_target_names(),
+                        len(found_usernames),
+                    )
+                    return
 
 
 def _is_manual_run():
