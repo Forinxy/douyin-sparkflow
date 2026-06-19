@@ -6,6 +6,7 @@ import re
 import shlex
 import subprocess
 import sys
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -13,6 +14,8 @@ from zoneinfo import ZoneInfo
 from utils.config import get_app_settings, get_config, get_userData, normalize_unique_id, repo_root, save_config
 
 logger = logging.getLogger(__name__)
+
+TASK_ALREADY_RUNNING = -2
 
 TASK_SCHEDULE_MARKERS = (
     "docker compose run --rm task",
@@ -61,6 +64,54 @@ def compose_command(*args):
     return base
 
 
+def _pid_is_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _parse_lock_pid(raw):
+    try:
+        return int(str(raw or "").strip().splitlines()[0])
+    except (IndexError, TypeError, ValueError):
+        return None
+
+
+def task_run_lock_status():
+    lock_path = repo_root() / "logs" / "task.run.lock"
+    if not lock_path.exists():
+        return {"running": False, "path": str(lock_path), "pid": None, "ageSeconds": 0, "staleRemoved": False}
+
+    raw = lock_path.read_text(encoding="utf-8", errors="ignore")
+    pid = _parse_lock_pid(raw)
+    try:
+        age_seconds = max(0, int(datetime.now(timezone.utc).timestamp() - lock_path.stat().st_mtime))
+    except OSError:
+        return {"running": False, "path": str(lock_path), "pid": pid, "ageSeconds": 0, "staleRemoved": False}
+
+    if pid is not None and not _pid_is_alive(pid):
+        try:
+            lock_path.unlink()
+            logger.warning("Removed stale task run lock owned by missing pid=%s", pid)
+            return {"running": False, "path": str(lock_path), "pid": pid, "ageSeconds": age_seconds, "staleRemoved": True}
+        except FileNotFoundError:
+            return {"running": False, "path": str(lock_path), "pid": pid, "ageSeconds": age_seconds, "staleRemoved": True}
+
+    if pid is None and age_seconds > 7200:
+        try:
+            lock_path.unlink()
+            logger.warning("Removed stale unreadable task run lock contents=%r", raw[:80])
+            return {"running": False, "path": str(lock_path), "pid": None, "ageSeconds": age_seconds, "staleRemoved": True}
+        except FileNotFoundError:
+            return {"running": False, "path": str(lock_path), "pid": None, "ageSeconds": age_seconds, "staleRemoved": True}
+
+    return {"running": True, "path": str(lock_path), "pid": pid, "ageSeconds": age_seconds, "staleRemoved": False}
+
+
 def build_task_run_spec():
     if running_in_container():
         return [sys.executable, "main.py", "--doTask"], repo_root()
@@ -88,20 +139,22 @@ def _compose_env_args(extra_env=None):
     return " ".join(shlex.quote(part) for part in parts)
 
 
-def _ops_log_file():
-    return str(get_app_settings().get("ops_log_file") or "/app/logs/douyin-sparkflow.log")
-
-
 def build_scheduled_task_command(extra_env=None, trigger_label="scheduled send"):
     if running_in_container():
         task_command = _with_env_prefix("python main.py --doTask", extra_env)
-        repo_root_quoted = shlex.quote(str(repo_root()))
-        script = (
-            "timestamp=$(date -Iseconds); "
+        return (
+            "/bin/bash -lc 'timestamp=$(date -Iseconds); "
             f"echo \"[AUTO_TRIGGER] $timestamp {trigger_label} start\"; "
-            f"cd {repo_root_quoted} && {task_command}"
+            "container=$(docker ps --format \"{{.Names}}\" | "
+            "grep -E \"^(douyin-web-hostfix|douyin-web)$\" | head -n 1); "
+            "if [ -z \"$container\" ]; then "
+            "echo \"[AUTO_TRIGGER] $timestamp no matching container found\"; "
+            "exit 1; "
+            "fi; "
+            "echo \"[AUTO_TRIGGER] $timestamp container=$container\"; "
+            "docker exec \"$container\" sh -lc "
+            f"\"cd /app && {task_command}\"'"
         )
-        return f"/bin/bash -lc {shlex.quote(script)}"
     if compose_file_path():
         compose_root_quoted = shlex.quote(str(compose_root()))
         compose_env_args = _compose_env_args(extra_env)
@@ -236,15 +289,26 @@ def get_task_container_rows():
         return []
 
 
-def run_task_now(*, unsent_only=False):
+def run_task_now(*, unsent_only=False, failed_only=False):
     try:
-        log_file = Path(_ops_log_file())
+        lock_status = task_run_lock_status()
+        if lock_status.get("running"):
+            logger.info(
+                "Refusing to start manual task because task lock is active pid=%s age=%ss",
+                lock_status.get("pid"),
+                lock_status.get("ageSeconds"),
+            )
+            return TASK_ALREADY_RUNNING
+
+        log_file = Path(get_app_settings().get("ops_log_file") or "/var/log/douyin-sparkflow.log")
         command, cwd = build_task_run_spec()
         run_env = {
             "SPARKFLOW_MANUAL_RUN": "1",
             "PYTHONUNBUFFERED": "1",
         }
-        if unsent_only:
+        if failed_only:
+            run_env["SPARKFLOW_MANUAL_FAILED_ONLY"] = "1"
+        elif unsent_only:
             run_env["SPARKFLOW_MANUAL_UNSENT_ONLY"] = "1"
         return run_background_command(
             command,
@@ -257,6 +321,10 @@ def run_task_now(*, unsent_only=False):
         Path("task_error.txt").write_text(traceback.format_exc(), encoding="utf-8")
         logger.error("run_task_now failed: %s", exc)
         return -1
+
+
+def run_failed_retry_now():
+    return run_task_now(failed_only=True)
 
 
 def run_unsent_retry_now():
@@ -283,7 +351,7 @@ def restart_proxy():
 
 
 def read_log_tail(lines=200):
-    log_path = Path(_ops_log_file())
+    log_path = Path(get_app_settings().get("ops_log_file") or "/var/log/douyin-sparkflow.log")
     if not log_path.exists():
         return ""
     content = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -348,7 +416,6 @@ def replace_douyin_cron_schedule(crontab_text, time_string):
     schedule = parse_schedule_string(time_string)
     scheduled_command = build_scheduled_task_command()
     fallback_command = build_unsent_fallback_task_command()
-    log_redirect = f" >> {shlex.quote(_ops_log_file())} 2>&1"
     updated = []
 
     for raw_line in crontab_text.splitlines():
@@ -360,20 +427,20 @@ def replace_douyin_cron_schedule(crontab_text, time_string):
     if schedule["mode"] == "window":
         updated.append(
             f"*/{schedule['scheduleIntervalMinutes']} {schedule['startHour']}-{schedule['endHour'] - 1} * * * "
-            f"{scheduled_command}{log_redirect}"
+            f"{scheduled_command} >> /var/log/douyin-sparkflow.log 2>&1"
         )
         updated.append(
             f"0 {schedule['endHour']} * * * "
-            f"{scheduled_command}{log_redirect}"
+            f"{scheduled_command} >> /var/log/douyin-sparkflow.log 2>&1"
         )
         updated.append(
             f"{schedule['scheduleIntervalMinutes']} {schedule['endHour']} * * * "
-            f"{fallback_command}{log_redirect}"
+            f"{fallback_command} >> /var/log/douyin-sparkflow.log 2>&1"
         )
     else:
         updated.append(
             f"{schedule['minute']} {schedule['hour']} * * * "
-            f"{scheduled_command}{log_redirect}"
+            f"{scheduled_command} >> /var/log/douyin-sparkflow.log 2>&1"
         )
 
     normalized = "\n".join(line for line in updated if line.strip())
@@ -484,6 +551,70 @@ def _account_identity(user):
     return str(user.get("unique_id") or user.get("username") or "unknown").strip()
 
 
+def _coerce_attempt_count(entry):
+    try:
+        return int(dict(entry or {}).get("attemptCount") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _account_failure_pause_after_attempts():
+    raw_value = str(os.getenv("SPARKFLOW_ACCOUNT_FAILURE_PAUSE_AFTER_ATTEMPTS") or "2").strip()
+    try:
+        return max(1, int(raw_value))
+    except ValueError:
+        return 2
+
+
+def _account_failure_entry_today(account, now):
+    entry = dict(account.get("account_failure") or {})
+    last_attempt_at = _parse_sent_at(entry.get("lastAttemptAt"), now.tzinfo)
+    if last_attempt_at and last_attempt_at.date() == now.date():
+        entry["lastAttemptAt"] = last_attempt_at.isoformat(timespec="seconds")
+        first_attempt_at = _parse_sent_at(entry.get("firstAttemptAt"), now.tzinfo)
+        if first_attempt_at:
+            entry["firstAttemptAt"] = first_attempt_at.isoformat(timespec="seconds")
+        entry["attemptCount"] = _coerce_attempt_count(entry)
+        entry["affectedTargets"] = list(entry.get("affectedTargets") or [])
+        return entry
+    return {}
+
+
+def _normalize_friend_index_key(value):
+    raw = unicodedata.normalize("NFKC", str(value or ""))
+    for token in ("\u200b", "\u200c", "\u200d", "\ufeff"):
+        raw = raw.replace(token, "")
+    raw = raw.replace("\xa0", " ")
+    return " ".join(raw.split()).strip()
+
+
+def _friend_index_status(account, target_name):
+    friend_index = dict(account.get("friend_index") or {})
+    entry = dict(friend_index.get(_normalize_friend_index_key(target_name)) or {})
+    return {
+        "seen": bool(entry),
+        "visibleName": str(entry.get("visibleName") or ""),
+        "stableKeys": list(entry.get("stableKeys") or []),
+        "lastSeenAt": str(entry.get("lastSeenAt") or ""),
+    }
+
+
+def _account_blocked_target_status(item, account_failure):
+    blocked_item = dict(item)
+    affected_targets = set(account_failure.get("affectedTargets") or [])
+    blocked_item.update(
+        {
+            "status": "account_blocked",
+            "category": str(account_failure.get("category") or ""),
+            "reason": str(account_failure.get("reason") or ""),
+            "attemptCount": _coerce_attempt_count(account_failure),
+            "lastAttemptAt": str(account_failure.get("lastAttemptAt") or ""),
+            "accountFailureAffected": blocked_item.get("target") in affected_targets,
+        }
+    )
+    return blocked_item
+
+
 def _scheduled_send_time(user, target_name, send_window, now):
     window_minutes = max(1, (send_window["endHour"] - send_window["startHour"]) * 60)
     start_of_window = now.replace(
@@ -501,6 +632,7 @@ def _scheduled_send_time(user, target_name, send_window, now):
 def _build_target_status(account, target_name, now, send_window):
     history = dict(account.get("message_history") or {})
     failure_queue = dict(account.get("failure_queue") or {})
+    friend_index = _friend_index_status(account, target_name)
 
     history_entry = history.get(target_name) or {}
     sent_at = _parse_sent_at(history_entry.get("sentAt"), now.tzinfo)
@@ -515,6 +647,7 @@ def _build_target_status(account, target_name, now, send_window):
             "reason": "",
             "attemptCount": 0,
             "scheduledAt": "",
+            "friendIndex": friend_index,
         }
 
     failure_entry = failure_queue.get(target_name) or {}
@@ -530,6 +663,7 @@ def _build_target_status(account, target_name, now, send_window):
             "reason": str(failure_entry.get("reason") or ""),
             "attemptCount": int(failure_entry.get("attemptCount") or 0),
             "scheduledAt": "",
+            "friendIndex": friend_index,
         }
 
     scheduled_at = None
@@ -546,6 +680,7 @@ def _build_target_status(account, target_name, now, send_window):
                 "reason": "",
                 "attemptCount": 0,
                 "scheduledAt": scheduled_at.isoformat(timespec="seconds"),
+                "friendIndex": friend_index,
             }
 
     return {
@@ -558,6 +693,7 @@ def _build_target_status(account, target_name, now, send_window):
         "reason": "",
         "attemptCount": 0,
         "scheduledAt": scheduled_at.isoformat(timespec="seconds") if scheduled_at else "",
+        "friendIndex": friend_index,
     }
 
 
@@ -568,35 +704,83 @@ def get_send_console_snapshot():
 
     summary = {
         "enabled_accounts": len(accounts),
+        "total_targets": 0,
         "today_sent_targets": 0,
         "today_failed_targets": 0,
         "today_pending_targets": 0,
         "today_unprocessed_targets": 0,
+        "today_account_blocked_targets": 0,
+        "today_remaining_targets": 0,
+        "today_account_failures": 0,
+        "today_account_paused": 0,
     }
     account_rows = []
+    account_failure_pause_after = _account_failure_pause_after_attempts()
 
     for account in accounts:
-        statuses = [_build_target_status(account, target_name, now, send_window) for target_name in account.get("targets") or []]
+        configured_targets = list(account.get("targets") or [])
+        statuses = [_build_target_status(account, target_name, now, send_window) for target_name in configured_targets]
         sent_targets = [item for item in statuses if item["status"] == "sent"]
         failed_targets = [item for item in statuses if item["status"] == "failed"]
-        pending_targets = [item for item in statuses if item["status"] == "pending"]
-        unprocessed_targets = [item for item in statuses if item["status"] == "unprocessed"]
+        account_failure = _account_failure_entry_today(account, now)
+        account_paused = bool(account_failure and _coerce_attempt_count(account_failure) >= account_failure_pause_after)
+        account_blocked_targets = []
+        if account_paused:
+            account_blocked_targets = [
+                _account_blocked_target_status(item, account_failure)
+                for item in statuses
+                if item["status"] in {"pending", "unprocessed"}
+            ]
+            pending_targets = []
+            unprocessed_targets = []
+        else:
+            pending_targets = [item for item in statuses if item["status"] == "pending"]
+            unprocessed_targets = [item for item in statuses if item["status"] == "unprocessed"]
+        friend_index_meta = dict(account.get("friend_index_meta") or {})
+        friend_index_last_scan_at = _parse_sent_at(friend_index_meta.get("lastScanAt"), now.tzinfo)
+        if friend_index_last_scan_at:
+            friend_index_meta["lastScanAt"] = friend_index_last_scan_at.isoformat(timespec="seconds")
+        friend_index_meta["missingTargets"] = list(friend_index_meta.get("missingTargets") or [])
+        friend_index_meta["lastScanComplete"] = bool(friend_index_meta.get("lastScanComplete"))
+        try:
+            friend_index_meta["scannedCount"] = int(friend_index_meta.get("scannedCount") or 0)
+        except (TypeError, ValueError):
+            friend_index_meta["scannedCount"] = 0
 
+        summary["total_targets"] += len(configured_targets)
         summary["today_sent_targets"] += len(sent_targets)
         summary["today_failed_targets"] += len(failed_targets)
         summary["today_pending_targets"] += len(pending_targets)
         summary["today_unprocessed_targets"] += len(unprocessed_targets)
+        summary["today_account_blocked_targets"] += len(account_blocked_targets)
+        summary["today_remaining_targets"] += (
+            len(failed_targets)
+            + len(pending_targets)
+            + len(unprocessed_targets)
+            + len(account_blocked_targets)
+        )
+        if account_failure:
+            summary["today_account_failures"] += 1
+        if account_paused:
+            summary["today_account_paused"] += 1
 
         account_rows.append(
             {
                 "unique_id": str(account.get("unique_id") or ""),
                 "username": account.get("username") or "",
+                "total_targets": len(configured_targets),
                 "sent_targets": sent_targets,
                 "failed_targets": failed_targets,
                 "pending_targets": pending_targets,
                 "unprocessed_targets": unprocessed_targets,
+                "account_blocked_targets": account_blocked_targets,
                 "last_failure_reason": failed_targets[0]["reason"] if failed_targets else "",
                 "failure_queue": dict(account.get("failure_queue") or {}),
+                "account_failure": account_failure,
+                "account_paused": account_paused,
+                "account_failure_pause_after": account_failure_pause_after,
+                "friend_index_meta": friend_index_meta,
+                "friend_index_count": len(dict(account.get("friend_index") or {})),
             }
         )
 
@@ -633,6 +817,7 @@ def get_ops_snapshot():
         "containers": get_container_status(),
         "task_containers": get_task_container_rows(),
         "send_console": get_send_console_snapshot(),
+        "task_lock": task_run_lock_status(),
         "daily_schedule": current_daily_schedule(),
         "crontab": read_crontab(),
         "log_tail": read_log_tail(120),
