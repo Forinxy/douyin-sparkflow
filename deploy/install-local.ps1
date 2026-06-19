@@ -58,43 +58,6 @@ function Get-EnvValue {
     return $DefaultValue
 }
 
-function Set-ProxyConfigLine {
-    param(
-        [string]$Path,
-        [string]$Key,
-        [string]$Value
-    )
-    $line = "${Key}: $Value"
-    $content = Get-Content -Path $Path -ErrorAction SilentlyContinue
-    $escapedKey = [regex]::Escape($Key)
-    $found = $false
-    $next = foreach ($item in $content) {
-        if ($item -match "^${escapedKey}:") {
-            $found = $true
-            $line
-        } else {
-            $item
-        }
-    }
-    if (-not $found) {
-        $next = @($next) + $line
-    }
-    Set-Content -Path $Path -Value $next -Encoding utf8
-}
-
-function Refresh-ProxyConfig {
-    param([string]$Url)
-    if (-not $Url) {
-        return
-    }
-    $userAgent = Get-EnvValue -Path ".env" -Key "PROXY_USER_AGENT" -DefaultValue "clash-verge/1.7.7"
-    Invoke-WebRequest -Uri $Url -Headers @{ "User-Agent" = $userAgent } -OutFile "proxy/config.yaml"
-    Set-ProxyConfigLine -Path "proxy/config.yaml" -Key "mixed-port" -Value "7890"
-    Set-ProxyConfigLine -Path "proxy/config.yaml" -Key "allow-lan" -Value "true"
-    Set-ProxyConfigLine -Path "proxy/config.yaml" -Key "bind-address" -Value "'*'"
-    Set-ProxyConfigLine -Path "proxy/config.yaml" -Key "external-controller" -Value "'0.0.0.0:9090'"
-}
-
 Require-Command docker
 docker compose version | Out-Null
 
@@ -110,8 +73,15 @@ New-Item -ItemType Directory -Force -Path "proxy", "state/cron", "state/login-pr
 if (-not (Test-Path "proxy/config.yaml")) {
     Copy-Item "proxy/config.example.yaml" "proxy/config.yaml"
 }
+if (-not (Test-Path "state/cron/root") -or (Get-Item "state/cron/root").Length -eq 0) {
+    @(
+        "*/20 10-17 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1",
+        "0 18 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1",
+        "20 18 * * * cd /app && env SPARKFLOW_MANUAL_RUN=1 SPARKFLOW_MANUAL_UNSENT_ONLY=1 PYTHONUNBUFFERED=1 python main.py --doTask >> /app/logs/app.log 2>&1"
+    ) | Set-Content -Path "state/cron/root" -Encoding utf8
+}
 
-Refresh-ProxyConfig -Url $ProxySubUrl
+bash ./refresh_proxy.sh
 
 docker compose up -d --build
 

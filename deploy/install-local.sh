@@ -42,6 +42,13 @@ mkdir -p proxy state/cron state/login-profile DouYinSparkFlow/logs
 if [ ! -f "proxy/config.yaml" ]; then
   cp "proxy/config.example.yaml" "proxy/config.yaml"
 fi
+if [ ! -s "state/cron/root" ]; then
+  cat > "state/cron/root" <<'CRON'
+*/20 10-17 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1
+0 18 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1
+20 18 * * * cd /app && env SPARKFLOW_MANUAL_RUN=1 SPARKFLOW_MANUAL_UNSENT_ONLY=1 PYTHONUNBUFFERED=1 python main.py --doTask >> /app/logs/app.log 2>&1
+CRON
+fi
 
 bash ./refresh_proxy.sh
 docker compose up -d --build

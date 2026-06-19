@@ -49,6 +49,7 @@ services:
     volumes:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./state/cron:/host-spool-cron
       - .:/opt/douyin-sparkflow
 

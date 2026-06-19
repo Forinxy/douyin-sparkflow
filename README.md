@@ -1,52 +1,32 @@
-# 🔥 douyin-sparkflow
+# Douyin SparkFlow
 
-Douyin SparkFlow 提供一个面向个人自用场景的抖音火花维护工具。项目包含 Web 管理面板、登录桌面、定时任务和代理配置模板，默认通过 Docker Compose 部署。
+Douyin SparkFlow 是一个个人自用的抖音火花维护工具，包含 Web 管理后台、扫码登录桌面、定时发送任务和代理配置模板。项目默认使用 Docker Compose 部署。
 
-## 🧭 上游项目
+本项目基于 [2061360308/DouYinSparkFlow](https://github.com/2061360308/DouYinSparkFlow) 二次开发，补充了 Web 管理、Docker 部署、登录桌面、发送可靠性和运行维护能力。
 
-本项目基于 [2061360308/DouYinSparkFlow](https://github.com/2061360308/DouYinSparkFlow) 进行二次开发，主要补充 Web 管理、Docker Compose 部署和运行维护相关能力。
+## 功能
 
-## ✨ 功能特性
+- Web 面板管理账号、目标好友、发送窗口和日志。
+- 浏览器扫码登录并保存登录状态。
+- 按每日时间窗口自动发送，也支持手动补发未成功或未发送目标。
+- 通过 Mihomo/Clash 代理配置访问网络。
+- 登录桌面、Web 后台、定时器、任务容器和代理容器统一编排。
+- 发送确认、好友列表扫描、账号级临时故障冷却等可靠性保护。
 
-- 🖥️ Web 面板管理账号、目标好友和发送窗口。
-- 🔐 浏览器扫码登录并保存本地登录态。
-- ⏱️ 定时执行续火花任务，支持手动触发和日志查看。
-- 🌐 可选 Mihomo/Clash 代理订阅配置。
-- 🐳 Docker Compose 编排 Web、登录桌面、定时器、任务和代理服务。
-- 🌗 支持小太阳/小月亮切换白天模式和黑夜模式。
-
-## 🖼️ 界面预览
-
-![Douyin SparkFlow 控制台界面预览](docs/images/ui-preview.png)
-
-> 📘 **截图教程：** 新版 Web 面板将概览、登录工作区、账号与目标、运行与系统拆成独立视图。按截图完成首次配置，请直接阅读 [Douyin SparkFlow 使用教程](docs/usage.md)。
-
-## ⚠️ 免责声明
+## 免责声明
 
 本项目仅用于个人学习、研究和自用场景，不是抖音、字节跳动或相关平台的官方工具，也未获得其授权、背书或关联。
 
-使用本项目时，请遵守所在地法律法规、抖音平台规则和相关服务协议。请勿将本项目用于商业用途、批量营销、骚扰他人、刷量引流、规避平台风控，或任何可能损害平台、他人账号及第三方权益的行为。
+使用本项目时，请遵守所在地法律法规、平台规则和相关服务协议。请勿用于商业营销、批量骚扰、刷量引流、规避平台风控，或任何可能损害平台、他人账号及第三方权益的行为。
 
-本项目会在使用者授权登录后，按照使用者配置的账号、好友和发送窗口执行自动化操作。由此产生的账号异常、限流、封禁、数据丢失、服务中断、消息误发、隐私泄露或其他损失，均由使用者自行承担。项目作者和贡献者不对使用本项目产生的任何直接或间接后果负责。
+请妥善保管 `.env`、登录状态、Cookie、代理配置、运行日志和账号数据，不要提交到公开仓库，也不要分享给不可信第三方。继续部署、运行或修改本项目，即表示你理解并接受以上说明。
 
-请妥善保管 `.env`、登录态、Cookie、代理配置和运行日志等敏感信息，不要提交到公开仓库，也不要分享给不可信的第三方。如果平台规则、接口页面或风控策略发生变化，请立即停止使用并自行评估风险。
+## 服务器一键安装
 
-继续部署、运行或修改本项目，即表示你已理解并接受以上说明；如果你不同意，请停止使用本项目。
-
-## 🚀 快速开始
-
-在服务器上推荐使用这条一键安装命令，适合 `raw.githubusercontent.com` 访问较慢或超时的环境：
+推荐在服务器上使用 Git clone 方式安装，适合 `raw.githubusercontent.com` 访问较慢的环境：
 
 ```bash
 apt update && apt install -y git curl gnupg ca-certificates && rm -rf /opt/douyin-sparkflow && git clone --depth=1 https://github.com/halfwaystudent/douyin-sparkflow.git /opt/douyin-sparkflow && cd /opt/douyin-sparkflow && bash deploy/install-server.sh
-```
-
-如果 GitHub 克隆时出现 `GnuTLS recv error`，先切到 HTTP/1.1 后重试：
-
-```bash
-git config --global http.version HTTP/1.1
-git config --global http.lowSpeedLimit 1000
-git config --global http.lowSpeedTime 60
 ```
 
 指定安装目录或代理订阅：
@@ -55,46 +35,68 @@ git config --global http.lowSpeedTime 60
 APP_ROOT=/opt/douyin-sparkflow PROXY_SUB_URL='你的 Mihomo/Clash 订阅链接' bash -c 'apt update && apt install -y git curl gnupg ca-certificates && rm -rf "$APP_ROOT" && git clone --depth=1 https://github.com/halfwaystudent/douyin-sparkflow.git "$APP_ROOT" && cd "$APP_ROOT" && bash deploy/install-server.sh'
 ```
 
-如果你的服务器可以稳定访问 `raw.githubusercontent.com`，也可以使用精简版：
+如果服务器能稳定访问 raw GitHub，也可以使用：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/halfwaystudent/douyin-sparkflow/main/deploy/install-server.sh | bash
 ```
 
-部署完成后检查容器状态：
+常用环境变量：
+
+```bash
+APP_ROOT=/opt/douyin-sparkflow
+BRANCH=main
+WEB_PORT=8787
+LOGIN_DESKTOP_WEB_PORT=8788
+PROXY_SUB_URL='你的 Mihomo/Clash 订阅链接'
+DEFAULT_SCHEDULE='10:00-18:00/20m'
+```
+
+安装完成后检查容器：
 
 ```bash
 cd /opt/douyin-sparkflow
 docker compose ps
 ```
 
-正常状态应包含：
+正常应看到：
 
-- `douyin-web`：`Up`，Web 面板服务。
-- `login-desktop`：`Up`，扫码登录桌面。
-- `douyin-scheduler`：`Up`，定时发送和自动兜底。
-- `mihomo`：`Up`，代理服务。
-- `douyin-task`：`Exited` 或 `Stopped` 是正常的，它是一次性手动任务容器，不需要常驻。
+- `douyin-web`：Web 管理后台。
+- `login-desktop`：扫码登录桌面。
+- `douyin-scheduler`：读取 `state/cron/root` 的定时器。
+- `mihomo`：代理服务。
+- `douyin-task`：一次性任务容器，未常驻是正常的。
 
-确认 `douyin-web` 已启动后访问：
+访问地址：
 
 - Web 面板：`http://服务器IP:8787`
 - 登录桌面：Web 面板中的“登录桌面”入口，默认端口 `8788`
 
-如果外网打不开 Web 面板，请在云服务器安全组、轻量云防火墙或 1Panel 防火墙中放行：
+如果外网打不开，请在云服务器安全组、系统防火墙或 1Panel 防火墙中放行：
 
-- `8787/tcp`：Web 管理面板。
+- `8787/tcp`：Web 管理后台。
 - `8788/tcp`：扫码登录桌面。
 
-首次使用：
+## 无损更新
 
-1. 创建管理员账号。
-2. 打开登录工作区并扫码登录抖音。
-3. 保存登录态。
-4. 刷新好友列表并选择目标好友。
-5. 设置发送窗口，例如 `10:00-18:00/10m`。
+更新代码和容器，但保留运行数据：
 
-## 💻 本地运行
+```bash
+cd /opt/douyin-sparkflow
+ACTION=update bash deploy/install-server.sh
+```
+
+更新不会覆盖这些运行态文件：
+
+- `.env`
+- `state/`
+- `proxy/config.yaml`
+- `DouYinSparkFlow/logs/`
+- `DouYinSparkFlow/usersData.json`
+- `DouYinSparkFlow/config.json`
+- `DouYinSparkFlow/webui_settings.json`
+
+## 本地运行
 
 Windows 需要先启动 Docker Desktop：
 
@@ -102,7 +104,7 @@ Windows 需要先启动 Docker Desktop：
 .\deploy\install-local.ps1
 ```
 
-如需配置代理订阅：
+带代理订阅：
 
 ```powershell
 .\deploy\install-local.ps1 -ProxySubUrl "你的 Mihomo/Clash 订阅链接"
@@ -114,19 +116,33 @@ Linux/macOS：
 ./deploy/install-local.sh
 ```
 
-本地脚本会创建 `.env`、运行态目录和默认代理配置，并执行 `docker compose up -d --build`。
+本地脚本会创建 `.env`、`state/cron/root`、`state/login-profile`、`proxy/config.yaml` 和 `DouYinSparkFlow/logs`，然后执行 `docker compose up -d --build`。
 
-## ⚙️ 配置说明
+## 配置
+
+`.env.example` 是部署模板。首次安装时会复制为 `.env`。常用配置：
+
+```bash
+WEB_PORT=8787
+LOGIN_DESKTOP_WEB_PORT=8788
+PROXY_SUB_URL=
+DEFAULT_SCHEDULE=10:00-18:00/20m
+PLAYWRIGHT_BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/mcr.microsoft.com/playwright/python:v1.56.0-jammy
+```
 
 如果 `.env` 中的 `PROXY_SUB_URL` 为空，项目会使用 `proxy/config.example.yaml` 生成直连代理配置。
 
-首次构建需要拉取 Playwright 基础镜像。默认 `.env.example` 使用国内同步源；如果同步源不可用，可以将 `.env` 中的 `PLAYWRIGHT_BASE_IMAGE` 改为：
+默认定时任务写入 `state/cron/root`：
 
-```bash
-PLAYWRIGHT_BASE_IMAGE=mcr.microsoft.com/playwright/python:v1.56.0-jammy
+```cron
+*/20 10-17 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1
+0 18 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1
+20 18 * * * cd /app && env SPARKFLOW_MANUAL_RUN=1 SPARKFLOW_MANUAL_UNSENT_ONLY=1 PYTHONUNBUFFERED=1 python main.py --doTask >> /app/logs/app.log 2>&1
 ```
 
-## 🧰 常用命令
+你也可以在 Web 面板里修改发送窗口，Web 会更新同一个 cron 文件。
+
+## 常用命令
 
 ```bash
 docker compose ps
@@ -134,26 +150,26 @@ docker compose logs -f web
 docker compose logs -f scheduler
 docker compose up -d --build
 docker compose down
+./refresh_proxy.sh
 ```
 
-刷新代理订阅：
+手动跑一次发送任务：
 
 ```bash
-./refresh_proxy.sh
-docker compose restart proxy
+docker compose run --rm task
 ```
 
-## 📁 项目结构
+## 项目结构
 
 - `DouYinSparkFlow/`：核心应用、Web UI、登录桌面和发送任务。
 - `docker-compose.yml`：容器编排入口。
 - `deploy/`：服务器和本地部署脚本。
-- `proxy/config.example.yaml`：代理配置模板。
+- `proxy/config.example.yaml`：直连代理配置模板。
 - `.env.example`：部署环境变量模板。
 
-## 🗃️ 运行时文件
+## 运行时文件
 
-以下路径由应用在部署或运行时生成，通常不纳入版本控制。迁移或备份实例时，可根据实际需要处理这些文件：
+以下文件由部署或运行生成，通常不纳入版本控制：
 
 - `.env`
 - `state/`
@@ -161,17 +177,10 @@ docker compose restart proxy
 - `proxy/config.yaml`
 - `DouYinSparkFlow/logs/`
 - `DouYinSparkFlow/usersData.json`
+- `DouYinSparkFlow/config.json`
 - `DouYinSparkFlow/webui_settings.json`
 - `DouYinSparkFlow/.im_sdk_cache/`
 
-## 📈 GitHub Star 趋势
-
-[![GitHub Star 趋势图](https://api.star-history.com/svg?repos=halfwaystudent/douyin-sparkflow&type=Date)](https://star-history.com/#halfwaystudent/douyin-sparkflow&Date)
-
-## 🤝 友情链接
-
-- [Linux Do](https://linux.do/)
-
-## 📄 许可
+## 许可
 
 核心应用采用 MIT 协议，详见 [DouYinSparkFlow/LICENSE](DouYinSparkFlow/LICENSE)。
