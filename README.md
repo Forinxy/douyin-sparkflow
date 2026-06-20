@@ -19,9 +19,18 @@
 
 ## 📸 主界面预览
 
+### 🌙 暗色模式
+
 <div align="center">
-  <img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 224951.png" alt="主界面预览" width="800"/>
-  <p><i>Web 管理控制台 - 仪表盘视图</i></p>
+  <img src="DouYinSparkFlow/docs/images/screenshot-dark.png" alt="主界面预览 - 暗色模式" width="800"/>
+  <p><i>Web 管理控制台 - 仪表盘视图（暗色主题）</i></p>
+</div>
+
+### ☀️ 亮色模式
+
+<div align="center">
+  <img src="DouYinSparkFlow/docs/images/screenshot-light.png" alt="主界面预览 - 亮色模式" width="800"/>
+  <p><i>Web 管理控制台 - 仪表盘视图（亮色主题）</i></p>
 </div>
 
 <details>
