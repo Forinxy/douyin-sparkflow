@@ -1,186 +1,428 @@
-# Douyin SparkFlow
+# 🔥 DouYin SparkFlow
 
-Douyin SparkFlow 是一个个人自用的抖音火花维护工具，包含 Web 管理后台、扫码登录桌面、定时发送任务和代理配置模板。项目默认使用 Docker Compose 部署。
+<div align="center">
 
-本项目基于 [2061360308/DouYinSparkFlow](https://github.com/2061360308/DouYinSparkFlow) 二次开发，补充了 Web 管理、Docker 部署、登录桌面、发送可靠性和运行维护能力。
+**抖音多账号火花自动维护系统**
 
-## 功能
+一个智能化的抖音好友互动管理工具，自动维护好友火花标记，支持多账号管理、定时发送、Web 控制台
 
-- Web 面板管理账号、目标好友、发送窗口和日志。
-- 浏览器扫码登录并保存登录状态。
-- 按每日时间窗口自动发送，也支持手动补发未成功或未发送目标。
-- 通过 Mihomo/Clash 代理配置访问网络。
-- 登录桌面、Web 后台、定时器、任务容器和代理容器统一编排。
-- 发送确认、好友列表扫描、账号级临时故障冷却等可靠性保护。
+[![GitHub stars](https://img.shields.io/github/stars/halfwaystudent/douyin-sparkflow?style=social)](https://github.com/halfwaystudent/douyin-sparkflow)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![LINUX DO](https://img.shields.io/badge/LINUX%20DO-Discussion-blue)](https://linux.do)
 
-## 免责声明
+[功能特性](#-功能特性) • [快速开始](#-快速开始) • [使用文档](#-使用文档) • [部署指南](#-部署指南) • [社区讨论](https://linux.do)
 
-本项目仅用于个人学习、研究和自用场景，不是抖音、字节跳动或相关平台的官方工具，也未获得其授权、背书或关联。
+</div>
 
-使用本项目时，请遵守所在地法律法规、平台规则和相关服务协议。请勿用于商业营销、批量骚扰、刷量引流、规避平台风控，或任何可能损害平台、他人账号及第三方权益的行为。
+---
 
-请妥善保管 `.env`、登录状态、Cookie、代理配置、运行日志和账号数据，不要提交到公开仓库，也不要分享给不可信第三方。继续部署、运行或修改本项目，即表示你理解并接受以上说明。
+## 📸 主界面预览
 
-## 服务器一键安装
+<div align="center">
+  <img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 224951.png" alt="主界面预览" width="800"/>
+  <p><i>Web 管理控制台 - 仪表盘视图</i></p>
+</div>
 
-推荐在服务器上使用 Git clone 方式安装，适合 `raw.githubusercontent.com` 访问较慢的环境：
+<details>
+<summary>📷 更多界面截图</summary>
+
+### 登录工作区
+<img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 223607.png" alt="登录工作区" width="600"/>
+
+### 账号管理
+<img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 224614.png" alt="账号管理" width="600"/>
+
+### 发送控制台
+<img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 224915.png" alt="发送控制台" width="600"/>
+
+</details>
+
+---
+
+## ✨ 功能特性
+
+### 🎯 核心功能
+
+- **🔄 自动维护火花标记** - 智能识别需要维护的好友关系，自动发送消息保持火花
+- **👥 多账号管理** - 支持同时管理多个抖音账号，集中控制、独立配置
+- **⏰ 定时任务调度** - 灵活的定时发送策略，支持自定义发送时间窗口
+- **🎨 消息模板系统** - 内置多种消息模板（一言、节日祝福等），支持自定义
+- **📊 可视化仪表盘** - 实时监控账号状态、任务进度、发送历史
+
+### 🛠️ 技术特性
+
+- **🌐 Web 管理界面** - 现代化的 Web UI，支持移动端访问
+- **🎭 主题切换** - 内置亮色/暗色主题，自适应系统偏好
+- **🔐 扫码登录** - 安全的二维码登录方式，无需密码
+- **🔌 浏览器自动化** - 基于 Playwright 的稳定浏览器控制
+- **🐳 容器化部署** - 开箱即用的 Docker 支持，一键部署
+- **🔄 登录态持久化** - 自动保存登录状态，减少重复登录
+- **📝 完整日志系统** - 详细的操作日志，方便问题追踪
+
+### 🎨 界面特点
+
+- **现代化设计** - 简洁美观的深色模式主界面，炫彩火花渐变效果
+- **响应式布局** - 适配桌面和移动设备
+- **侧边栏导航** - 清晰的功能分区：概览、登录、账号、控制台、日志、设置
+- **实时状态更新** - 账号在线状态、任务执行进度实时显示
+- **交互式控制** - 一键启动/停止任务，批量操作支持
+
+---
+
+## 🚀 快速开始
+
+### 前置要求
+
+- Python 3.8 或更高版本
+- Docker 和 Docker Compose（用于容器部署）
+- 稳定的网络连接
+
+### 📦 安装部署
+
+<details open>
+<summary><b>🐳 方式一：Docker 一键部署（推荐）</b></summary>
+
+**适用场景**：服务器部署、生产环境
 
 ```bash
-apt update && apt install -y git curl gnupg ca-certificates && rm -rf /opt/douyin-sparkflow && git clone --depth=1 https://github.com/halfwaystudent/douyin-sparkflow.git /opt/douyin-sparkflow && cd /opt/douyin-sparkflow && bash deploy/install-server.sh
+# 1. 克隆仓库
+git clone https://github.com/halfwaystudent/douyin-sparkflow.git
+cd douyin-sparkflow
+
+# 2. 配置环境变量
+cp .env.example .env
+nano .env  # 根据需要修改配置
+
+# 3. 启动服务
+docker-compose up -d
+
+# 4. 访问 Web 界面
+# 浏览器打开 http://localhost:8787
 ```
 
-指定安装目录或代理订阅：
+**服务端口说明**：
+- `8787`: Web 管理控制台
+- `18090`: 登录桌面 API
+- `5901`: VNC 远程桌面
+- `8788`: noVNC Web 桌面
+
+</details>
+
+<details>
+<summary><b>💻 方式二：本地开发运行</b></summary>
+
+**适用场景**：本地开发、功能测试
 
 ```bash
-APP_ROOT=/opt/douyin-sparkflow PROXY_SUB_URL='你的 Mihomo/Clash 订阅链接' bash -c 'apt update && apt install -y git curl gnupg ca-certificates && rm -rf "$APP_ROOT" && git clone --depth=1 https://github.com/halfwaystudent/douyin-sparkflow.git "$APP_ROOT" && cd "$APP_ROOT" && bash deploy/install-server.sh'
+# 1. 克隆仓库
+git clone https://github.com/halfwaystudent/douyin-sparkflow.git
+cd douyin-sparkflow/DouYinSparkFlow
+
+# 2. 安装依赖
+pip install -r requirements.txt
+pip install -r requirements-web.txt
+
+# 3. 安装 Playwright 浏览器
+playwright install chromium
+
+# 4. 启动 Web 服务
+python main.py --web
+
+# 5. 访问 http://localhost:8787
 ```
 
-如果服务器能稳定访问 raw GitHub，也可以使用：
+</details>
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/halfwaystudent/douyin-sparkflow/main/deploy/install-server.sh | bash
+### 🎬 使用流程
+
+1. **登录账号** → 进入"登录工作区"，扫码登录抖音账号
+2. **添加好友** → 在"账号管理"中刷新好友列表，选择需要维护火花的好友
+3. **配置任务** → 设置发送时间窗口、消息模板
+4. **启动任务** → 在"概览"页面启动定时任务
+5. **监控运行** → 在"发送控制台"查看实时日志和发送记录
+
+📖 详细使用教程请查看 [使用文档](DouYinSparkFlow/docs/usage.md)
+
+---
+
+## 📂 项目结构
+
+```
+douyin-sparkflow/
+├── DouYinSparkFlow/          # 核心应用源码
+│   ├── core/                 # 核心功能模块
+│   │   ├── browser.py        # 浏览器控制
+│   │   ├── friends.py        # 好友管理
+│   │   ├── login.py          # 登录处理
+│   │   ├── msg_builder.py    # 消息构建
+│   │   ├── protocol_sender.mjs  # 协议发送
+│   │   └── tasks.py          # 任务调度（核心）
+│   ├── webui/                # Web 界面
+│   │   ├── app.py            # FastAPI 主应用
+│   │   ├── auth.py           # 认证模块
+│   │   ├── login_sessions.py # 登录会话管理
+│   │   ├── ops.py            # 操作接口
+│   │   ├── static/           # 静态资源（CSS/JS）
+│   │   └── templates/        # HTML 模板
+│   ├── utils/                # 工具模块
+│   │   ├── config.py         # 配置管理
+│   │   ├── logger.py         # 日志记录
+│   │   └── hitokoto.py       # 一言 API
+│   ├── scripts/              # 辅助脚本
+│   ├── docs/                 # 文档和截图
+│   ├── main.py               # 主入口
+│   ├── login_desktop_server.py  # 登录桌面服务
+│   └── relogin_worker.py     # 重登录工作进程
+├── proxy/                    # 代理配置
+│   └── config.yaml           # Mihomo 代理配置
+├── docker-compose.yml        # 容器编排配置
+├── .env.example              # 环境变量模板
+├── refresh_proxy.sh          # 代理刷新脚本
+└── README.md                 # 本文件
 ```
 
-常用环境变量：
+---
+
+## 📖 使用文档
+
+### 🔑 账号管理
+
+- **扫码登录**：使用抖音 APP 扫描二维码完成登录
+- **多账号支持**：可同时管理多个账号，独立配置每个账号的发送策略
+- **登录态保持**：自动保存登录状态，无需频繁重新登录
+- **状态监控**：实时显示账号在线状态和登录有效期
+
+### 📝 消息管理
+
+**内置模板类型**：
+- **一言（Hitokoto）**：随机诗词、名言警句
+- **节日祝福**：自动识别节假日，发送对应祝福语
+- **自定义消息**：支持纯文本自定义消息
+
+**发送策略**：
+- 时间窗口设置（如：09:00-22:00）
+- 随机延迟避免检测
+- 发送失败自动重试
+- 发送确认机制
+
+### ⚙️ 配置说明
+
+<details>
+<summary>点击查看配置文件说明</summary>
+
+#### `.env` - 环境变量配置
 
 ```bash
-APP_ROOT=/opt/douyin-sparkflow
-BRANCH=main
+# 代理配置（可选）
+PROXY_URL=http://proxy-container:7890
+
+# Web 服务端口
 WEB_PORT=8787
-LOGIN_DESKTOP_WEB_PORT=8788
-PROXY_SUB_URL='你的 Mihomo/Clash 订阅链接'
-DEFAULT_SCHEDULE='10:00-18:00/20m'
+
+# 登录桌面端口
+LOGIN_DESKTOP_PORT=18090
+
+# VNC 端口
+VNC_PORT=5901
 ```
 
-安装完成后检查容器：
+#### `config.json` - 应用配置
+
+```json
+{
+  "send_window_start": "09:00",  // 发送窗口开始时间
+  "send_window_end": "22:00",    // 发送窗口结束时间
+  "send_interval_min": 300,      // 最小发送间隔（秒）
+  "message_template": "hitokoto", // 消息模板类型
+  "enable_send_confirm": true,   // 启用发送确认
+  "friend_refresh_interval": 3600 // 好友列表刷新间隔（秒）
+}
+```
+
+</details>
+
+---
+
+## 🐳 部署指南
+
+### Docker Compose 部署（推荐）
+
+本项目提供完整的 Docker Compose 配置，包含以下服务：
+
+- **douyin-web**: Web 管理控制台服务
+- **login-desktop**: 登录桌面服务（包含浏览器环境）
+- **proxy**: Mihomo 代理服务（可选）
+
+#### 快速部署
 
 ```bash
-cd /opt/douyin-sparkflow
-docker compose ps
+# 1. 准备环境变量
+cp .env.example .env
+
+# 2. 启动所有服务
+docker-compose up -d
+
+# 3. 查看日志
+docker-compose logs -f
+
+# 4. 停止服务
+docker-compose down
 ```
 
-正常应看到：
-
-- `douyin-web`：Web 管理后台。
-- `login-desktop`：扫码登录桌面。
-- `douyin-scheduler`：读取 `state/cron/root` 的定时器。
-- `mihomo`：代理服务。
-- `douyin-task`：一次性任务容器，未常驻是正常的。
-
-访问地址：
-
-- Web 面板：`http://服务器IP:8787`
-- 登录桌面：Web 面板中的“登录桌面”入口，默认端口 `8788`
-
-如果外网打不开，请在云服务器安全组、系统防火墙或 1Panel 防火墙中放行：
-
-- `8787/tcp`：Web 管理后台。
-- `8788/tcp`：扫码登录桌面。
-
-## 无损更新
-
-更新代码和容器，但保留运行数据：
+#### 仅部署 Web 服务
 
 ```bash
-cd /opt/douyin-sparkflow
-ACTION=update bash deploy/install-server.sh
+docker-compose up -d douyin-web
 ```
 
-更新不会覆盖这些运行态文件：
+### 服务器部署最佳实践
 
-- `.env`
-- `state/`
-- `proxy/config.yaml`
-- `DouYinSparkFlow/logs/`
-- `DouYinSparkFlow/usersData.json`
-- `DouYinSparkFlow/config.json`
-- `DouYinSparkFlow/webui_settings.json`
+<details>
+<summary>查看部署建议</summary>
 
-## 本地运行
+#### 系统要求
 
-Windows 需要先启动 Docker Desktop：
+- **CPU**: 2 核心或以上
+- **内存**: 2GB 或以上
+- **存储**: 10GB 可用空间
+- **系统**: Ubuntu 20.04+ / CentOS 7+ / Debian 10+
 
-```powershell
-.\deploy\install-local.ps1
+#### 持久化数据
+
+以下目录建议挂载为数据卷：
+
+```yaml
+volumes:
+  - ./state:/app/state          # 运行状态数据
+  - ./logs:/app/logs            # 日志文件
+  - ./DouYinSparkFlow:/app      # 应用代码（开发环境）
 ```
 
-带代理订阅：
+#### 网络配置
 
-```powershell
-.\deploy\install-local.ps1 -ProxySubUrl "你的 Mihomo/Clash 订阅链接"
+如需外网访问，建议配置反向代理（Nginx/Caddy）：
+
+```nginx
+# Nginx 配置示例
+server {
+    listen 80;
+    server_name sparkflow.example.com;
+    
+    location / {
+        proxy_pass http://localhost:8787;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
 ```
 
-Linux/macOS：
+#### 安全建议
 
-```bash
-./deploy/install-local.sh
+- ✅ 修改默认管理员密码
+- ✅ 启用 HTTPS（使用 Let's Encrypt）
+- ✅ 配置防火墙规则
+- ✅ 定期备份 `state/` 和 `usersData.json`
+- ✅ 使用环境变量管理敏感配置
+
+</details>
+
+---
+
+## 🔧 高级配置
+
+### 代理配置
+
+项目支持通过代理访问抖音服务，配置文件位于 `proxy/config.yaml`：
+
+```yaml
+mixed-port: 7890
+allow-lan: true
+mode: rule
+# ... 更多配置见配置文件
 ```
 
-本地脚本会创建 `.env`、`state/cron/root`、`state/login-profile`、`proxy/config.yaml` 和 `DouYinSparkFlow/logs`，然后执行 `docker compose up -d --build`。
+### GitHub Actions 定时任务
 
-## 配置
+支持通过 GitHub Actions 运行定时任务，配置文件：`.github/workflows/schedule.yml`
 
-`.env.example` 是部署模板。首次安装时会复制为 `.env`。常用配置：
+---
 
-```bash
-WEB_PORT=8787
-LOGIN_DESKTOP_WEB_PORT=8788
-PROXY_SUB_URL=
-DEFAULT_SCHEDULE=10:00-18:00/20m
-PLAYWRIGHT_BASE_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/mcr.microsoft.com/playwright/python:v1.56.0-jammy
-```
+## 📊 技术栈
 
-如果 `.env` 中的 `PROXY_SUB_URL` 为空，项目会使用 `proxy/config.example.yaml` 生成直连代理配置。
+- **后端框架**: FastAPI - 现代化的 Python Web 框架
+- **前端**: HTML5 + CSS3 + Vanilla JavaScript
+- **浏览器自动化**: Playwright - 跨浏览器自动化
+- **容器化**: Docker + Docker Compose
+- **代理**: Mihomo (Clash Meta)
+- **任务调度**: APScheduler
+- **模板引擎**: Jinja2
 
-默认定时任务写入 `state/cron/root`：
+---
 
-```cron
-*/20 10-17 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1
-0 18 * * * cd /app && python main.py --doTask >> /app/logs/app.log 2>&1
-20 18 * * * cd /app && env SPARKFLOW_MANUAL_RUN=1 SPARKFLOW_MANUAL_UNSENT_ONLY=1 PYTHONUNBUFFERED=1 python main.py --doTask >> /app/logs/app.log 2>&1
-```
+## ⚠️ 免责声明
 
-你也可以在 Web 面板里修改发送窗口，Web 会更新同一个 cron 文件。
+> **本项目仅供学习研究使用**
 
-## 常用命令
+- 本工具仅用于技术学习和个人使用，不得用于任何商业用途
+- 使用本工具产生的一切后果由使用者自行承担
+- 请遵守平台规则，合理使用，避免频繁操作
+- 作者不对使用本工具导致的账号异常、封禁等问题负责
+- 请评估使用风险，建议使用小号测试
 
-```bash
-docker compose ps
-docker compose logs -f web
-docker compose logs -f scheduler
-docker compose up -d --build
-docker compose down
-./refresh_proxy.sh
-```
+---
 
-手动跑一次发送任务：
+## 📝 更新日志
 
-```bash
-docker compose run --rm task
-```
+查看 [CHANGELOG.md](DouYinSparkFlow/CHANGELOG.md) 了解版本更新历史。
 
-## 项目结构
+**最新更新** (2026-05-30):
+- ✨ 重新设计 Web UI，全新视觉风格
+- 🎨 新增亮色/暗色主题切换
+- 📱 优化移动端响应式布局
+- 🔄 改进好友列表刷新可靠性
+- 🚀 优化一键部署流程
+- 📖 新增截图使用指南
 
-- `DouYinSparkFlow/`：核心应用、Web UI、登录桌面和发送任务。
-- `docker-compose.yml`：容器编排入口。
-- `deploy/`：服务器和本地部署脚本。
-- `proxy/config.example.yaml`：直连代理配置模板。
-- `.env.example`：部署环境变量模板。
+---
 
-## 运行时文件
+## 🤝 贡献
 
-以下文件由部署或运行生成，通常不纳入版本控制：
+欢迎提交 Issue 和 Pull Request！
 
-- `.env`
-- `state/`
-- `logs/`
-- `proxy/config.yaml`
-- `DouYinSparkFlow/logs/`
-- `DouYinSparkFlow/usersData.json`
-- `DouYinSparkFlow/config.json`
-- `DouYinSparkFlow/webui_settings.json`
-- `DouYinSparkFlow/.im_sdk_cache/`
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
 
-## 许可
+---
 
-核心应用采用 MIT 协议，详见 [DouYinSparkFlow/LICENSE](DouYinSparkFlow/LICENSE)。
+## 📄 许可证
+
+本项目采用 [MIT License](DouYinSparkFlow/LICENSE) 开源协议。
+
+---
+
+## 🌟 Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=halfwaystudent/douyin-sparkflow&type=Date)](https://star-history.com/#halfwaystudent/douyin-sparkflow&Date)
+
+---
+
+## 🔗 相关链接
+
+- **项目主页**: [GitHub Repository](https://github.com/halfwaystudent/douyin-sparkflow)
+- **社区讨论**: [Linux Do 社区](https://linux.do)
+- **使用文档**: [docs/usage.md](DouYinSparkFlow/docs/usage.md)
+- **问题反馈**: [Issues](https://github.com/halfwaystudent/douyin-sparkflow/issues)
+
+---
+
+<div align="center">
+
+**如果这个项目对你有帮助，请给个 ⭐ Star 支持一下！**
+
+Made with ❤️ by [halfwaystudent](https://github.com/halfwaystudent)
+
+</div>

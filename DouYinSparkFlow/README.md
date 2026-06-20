@@ -1,137 +1,400 @@
-# DouYin Spark Flow
+# DouYinSparkFlow - 核心应用
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue?logo=python)
-![Playwright](https://img.shields.io/badge/Playwright-%E2%9C%94-green?logo=playwright)
-![chrome-headless-shell](https://img.shields.io/badge/chrome--headless--shell-%E2%9C%94-brightgreen?logo=googlechrome)
+> 抖音多账号火花自动维护系统 - 核心源码模块
 
-## 🎉 2026 正月限定（除夕至正月十五）
+这是 DouYin SparkFlow 的核心应用源码目录，包含所有业务逻辑、Web 界面和自动化任务实现。
 
-除夕当天到正月十五期间，可开启祝福模式，每日向好友发送与当日相关的祝福语。
+---
 
-### 启用方法
+## 📁 目录结构
 
-拉取最新代码后，将 `config.json` 中 `happyNewYear` 下的 `enabled` 设为 `true`。
+### `core/` - 核心功能模块
 
-`happyNewYear.messageTemplate` 为正月祝福模板，支持以下占位符：
+核心业务逻辑实现，包括浏览器自动化、消息发送、好友管理等。
 
-1. `[API]`：祝福语
-2. `[data]`：公历日期，例如 2026年02月16日
-3. `[data_lunar]`：农历日期，例如 农历除夕、正月初一、正月初二 等
+| 文件 | 说明 | 大小 |
+|------|------|------|
+| `browser.py` | 浏览器控制和页面操作 | 3.4 KB |
+| `friends.py` | 好友列表管理和刷新逻辑 | 5.2 KB |
+| `login.py` | 登录流程控制 | 2.8 KB |
+| `msg_builder.py` | 消息内容构建（一言、祝福等） | 4.5 KB |
+| `protocol_dispatch.py` | 协议分发和路由 | 9.7 KB |
+| `protocol_sender.mjs` | 消息发送协议（Node.js 脚本） | 21 KB |
+| `tasks.py` | **任务调度核心**（定时任务、状态管理） | 83 KB |
 
-## 交流讨论
+### `webui/` - Web 管理界面
 
-已开放讨论区，有疑问或展示相关成果，发布话题需求的可以加入讨论
+基于 FastAPI 的 Web 管理控制台，提供可视化操作界面。
 
-[跳转讨论区](https://github.com/2061360308/DouYinSparkFlow/discussions)
+#### 后端模块
 
-## 📌 简单介绍
+| 文件 | 说明 |
+|------|------|
+| `app.py` | FastAPI 主应用，路由定义 |
+| `auth.py` | 用户认证和会话管理 |
+| `login_sessions.py` | 登录会话生命周期管理 |
+| `ops.py` | 操作接口（启动/停止任务、刷新好友等） |
 
-**抖音火花自动续火脚本**一款轻量实用的抖音互动脚本，可自动为你和抖音好友续火花，无需手动操作。
+#### 前端资源
 
-✅ 支持 GitHub Actions 自动运行（开箱即用的 Workflow 配置）
-
-✅ 也可部署至自有服务器，灵活适配个人使用场景
-
-### 特性
-
-- [x] 多用户,同时批量支持多个账户
-- [x] 多目标,一个账户支持多个续火花目标
-- [x] 一言支持,更丰富的消息文本
-
-使用`PlayWright`以及`chrome-headless-shell`自动化操作[抖音创作者中心](https://creator.douyin.com/)，进行定时发送抖音消息来续火花
-
-## 🚀 使用方法
-
-### 1. 克隆项目到本地，并完成环境配置
-
-```shell
-pip install -r requirements.txt
-cp usersData.example.json usersData.json
+```
+webui/
+├── static/              # 静态资源
+│   ├── app.css         # 主题样式（亮色/暗色）
+│   ├── app.js          # 主题切换脚本
+│   ├── styles.css      # 基础样式
+│   └── multiPagePlugins/  # 浏览器扩展插件
+└── templates/          # HTML 模板
+    ├── base.html       # 基础布局模板
+    ├── dashboard.html  # 仪表盘（主界面）
+    ├── login.html      # 登录页
+    ├── login_workspace.html  # 登录工作区
+    ├── accounts.html   # 账号管理
+    ├── send_console.html  # 发送控制台
+    ├── logs.html       # 日志查看
+    └── settings.html   # 系统设置
 ```
 
-### 2. 运行main.py
+### `utils/` - 工具模块
 
-首次运行`python main.py`时，会自动下载需要的测试浏览器，默认从Mozilla的镜像站下载，需要保证网络通畅。
+通用辅助功能和配置管理。
 
-![main.py运行截图](docs/images/屏幕截图%202026-02-14%20223607.png)
+| 文件 | 说明 |
+|------|------|
+| `config.py` | 配置文件加载和管理 |
+| `logger.py` | 日志系统配置 |
+| `hitokoto.py` | 一言 API 接口封装 |
+| `github_action_config.py` | GitHub Actions 配置生成 |
 
-### 3. 登录用户
+### `scripts/` - 辅助脚本
 
-运行main.py后，会弹出可选择的项目，这时选择添加用户登录，你可以选择添加多个用户。具体操作方式根据提示在弹出窗口扫码登录抖音创作者中心即可，登录成功后你需要根据提示查看对应联系人的名称，并在控制台输入。
+| 文件 | 说明 |
+|------|------|
+| `cron_runner.py` | Cron 任务运行器 |
+| `start_login_desktop.sh` | 登录桌面启动脚本 |
 
-### 4. 更改配置
+### `docs/` - 文档和资源
 
-你可以选择更改config.json中的配置，目前proxyAddress的代理设置还没有实现。其他项目解释如下：
+| 文件/目录 | 说明 |
+|----------|------|
+| `usage.md` | 详细使用教程（含截图） |
+| `images/` | 界面截图和示意图 |
 
-|名称|作用解释|期望值|
-|-----|-----|-----|
-|multiTask|是否启用多任务，登录多个账户后生效，启用后同时操作多个账户的任务加快执行速度|`true` `false`|
-|taskCount|最大同时操作的账户数目，需要先启用multiTask|int，默认`5`|
-|messageTemplate|发送消息的模板，可以从抖音聊天框编辑好后直接复制过来，这样可以拿到简单表情的代码，例如`[盖瑞]`|使用`[API]`引用每日一言内容 默认值为： `[盖瑞]今日火花[加一]\n—— [右边] 每日一言 [左边] ——\n[API]`|
-|hitokotoTypes|每日一言消息允许的类型|可以留空使用所有类型`[]`,全部可选类型的列表为：`["动画","漫画","游戏","文学","原创","来自网络","影视","诗词","哲学","抖机灵","其他"]`|
+---
 
-### 5. 测试运行
+## 🚀 运行方式
 
-再次运行main.py之后选择`3.本地运行任务`,查看是否能够正常执行任务
+### 开发环境运行
 
-### 6. Github Acion部署
+#### 1. 安装依赖
 
-项目可以部署到Github Action每日定时触发，在测试完毕后，你需要将本地代码推送到自己的Github仓库，你也可以选择直接克隆本仓库后续将config.json同步即可（如果你更改了设置的话）。本地通过usersData.json存储已经登录的账户凭证，为了防止信息泄露，Action不能像本地那样从明文读取这个配置，也不要将这个文件上传到Github，正确做法是将内容存放到`secrets`中
+```bash
+# 核心依赖
+pip install -r requirements.txt
 
-> 方法: 在你的Github仓库下操作，选择settings->Environments，在下面新建一个`user-data`环境，继续在这个`user-data`环境的Environment secrets添加名为`USER_DATA`的项目
+# Web UI 依赖
+pip install -r requirements-web.txt
 
-![创建`user-data`环境图](docs/images/屏幕截图%202026-02-14%20224915.png)
+# 安装 Playwright 浏览器
+playwright install chromium
+```
 
-关于这个配置的内容可以再次运行main.py,选择`2. 获取Github Action配置`将对应输出内容填入`USER_DATA`的值即可
+#### 2. 启动方式
 
-![填写配置内容图](docs/images/屏幕截图%202026-02-14%20224951.png)
+**Web 管理模式**（推荐）：
+```bash
+python main.py --web
+# 访问 http://localhost:8787
+```
 
-### 7. （可选）手动触发Action进行测试
+**命令行模式**：
+```bash
+python main.py
+# 直接运行任务调度
+```
 
-仓库的工作流中添加了`workflow_dispatch`以便允许进行手动触发，在初次配置完成后可以通过手动触发Action来进行验证。
+**登录桌面服务**：
+```bash
+python login_desktop_server.py
+# 启动登录桌面 API（用于扫码登录）
+```
 
-![手动测试](docs/images/屏幕截图%202026-02-14%20224614.png)
+### Docker 容器运行
 
-## 💬 问题解答
+参考根目录的 `docker-compose.yml` 配置：
 
-1. 首次**克隆仓库**后启用Action
+```bash
+# 构建镜像
+docker build -f Dockerfile.server -t douyin-sparkflow:local .
 
-    **解答：**
+# 运行容器
+docker run -d \
+  -p 8787:8787 \
+  -v $(pwd):/app \
+  douyin-sparkflow:local
+```
 
-    克隆后Github Action 默认在新仓库中是关闭的。你需要在克隆仓库后，手动进入你的 Github 仓库页面，依次点击 `Actions` 选项卡，首次进入会看到“启用工作流”或“Enable workflows”按钮，点击即可激活仓库中的 Action 工作流。
+---
 
-    启用后，工作流会根据 `.github/workflows` 目录下的配置自动运行。你可以通过手动触发（workflow_dispatch）或等待定时任务自动执行。
+## ⚙️ 配置文件
 
-    > 注意：首次启用后建议手动运行一次，确保配置无误。
+### `config.json` - 应用配置
 
-2. 运行一段时间后Github提示仓库太久没有新活动，定时Action被禁用
+主配置文件，控制任务行为和系统设置。
 
-    > 通常提示：Scheduled workflows disabled
-To reduce unnecessary workflow runs, scheduled workflows have been disabled in this repository because it has been more than 60 days since the last commit.
+```json
+{
+  "send_window_start": "09:00",
+  "send_window_end": "22:00",
+  "send_interval_min": 300,
+  "message_template": "hitokoto",
+  "enable_send_confirm": true,
+  "friend_refresh_interval": 3600,
+  "browser_headless": false,
+  "browser_timeout": 30000,
+  "max_retry_count": 3,
+  "cooldown_on_failure": 600
+}
+```
 
-    ![Scheduled workflows disabled
-To reduce unnecessary workflow runs, scheduled workflows have been disabled in this repository because it has been more than 60 days since the last commit.](docs/images/image.png)
+**配置项说明**：
 
-    **解答：**
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `send_window_start` | string | "09:00" | 发送窗口开始时间 |
+| `send_window_end` | string | "22:00" | 发送窗口结束时间 |
+| `send_interval_min` | int | 300 | 最小发送间隔（秒） |
+| `message_template` | string | "hitokoto" | 消息模板类型 |
+| `enable_send_confirm` | bool | true | 是否启用发送确认 |
+| `friend_refresh_interval` | int | 3600 | 好友列表刷新间隔（秒） |
+| `browser_headless` | bool | false | 浏览器无头模式 |
+| `browser_timeout` | int | 30000 | 浏览器操作超时（毫秒） |
+| `max_retry_count` | int | 3 | 失败重试次数 |
+| `cooldown_on_failure` | int | 600 | 失败后冷却时间（秒） |
 
-    这是 Github 的自动保护机制：如果仓库 60 天内没有任何提交或活动，所有定时（schedule）类型的 Action 会被自动禁用，防止资源浪费。
+### `usersData.json` - 用户数据
 
-    遇到这种情况，只需在仓库内进行一次代码提交（如修改 README 或随便提交一个空白更改），然后重新进入 Actions 页面，点击提示条上的“Enable workflow”或“启用工作流”按钮，即可恢复定时任务。
+存储账号信息、好友列表、发送记录等运行时数据。
 
-    恢复后，定时 Action 会重新按照 workflow 文件的 schedule 设定自动运行。
+⚠️ **此文件包含敏感数据，不应提交到 Git 仓库**
 
-    建议：如果你长期需要定时任务，定期（如每月）做一次无关紧要的提交，防止被自动禁用。
+示例结构：
+```json
+{
+  "accounts": [
+    {
+      "id": "user_123",
+      "nickname": "用户昵称",
+      "friends": [...],
+      "last_send_time": "2026-06-20T10:30:00",
+      "send_history": [...]
+    }
+  ]
+}
+```
 
-    > 补充，我在仓库中尝试引入了`liskin/gh-workflow-keepalive`，理论上在此之后复刻仓库的或者进行同步后的仓库不需要再手动保活，具体详见action的`workflow-keepalive` Job
+### `webui_settings.json` - Web UI 设置
 
-## ⚠️ 免责声明
+Web 管理界面的配置（管理员密码、端口等）。
 
-1. 本项目为**开源学习用途**，仅用于技术研究和个人自用，严禁用于商业用途、恶意刷量或违反抖音平台规则的行为。
-2. 使用本脚本产生的一切风险（包括但不限于抖音账号限流、封禁、处罚等）均由使用者自行承担，项目开发者不承担任何责任。
-3. 本项目仅调用公开的接口/模拟人工操作，不涉及破解、入侵抖音系统，使用者需遵守《抖音用户服务协议》及相关法律法规。
-4. 请合理控制脚本运行频率，避免给抖音平台服务器造成压力，建议仅用于个人少量好友的火花维系。
-5. 若你使用本项目即表示已阅读并同意本免责声明，如不同意请立即停止使用。
+⚠️ **此文件包含敏感数据，不应提交到 Git 仓库**
 
-## 📄 开源协议
+---
 
-本项目基于 MIT 协议开源，你可以自由使用、修改和分发本项目代码，详见 [LICENSE](LICENSE) 文件。
+## 🔌 API 接口
+
+Web UI 提供以下 RESTful API 接口：
+
+### 账号管理
+
+- `GET /api/accounts` - 获取账号列表
+- `POST /api/accounts/refresh` - 刷新好友列表
+- `DELETE /api/accounts/{id}` - 删除账号
+
+### 任务控制
+
+- `POST /api/tasks/start` - 启动定时任务
+- `POST /api/tasks/stop` - 停止定时任务
+- `GET /api/tasks/status` - 获取任务状态
+
+### 登录管理
+
+- `GET /api/login/qrcode` - 获取登录二维码
+- `GET /api/login/status` - 检查登录状态
+- `POST /api/login/logout` - 登出账号
+
+### 消息发送
+
+- `POST /api/send/manual` - 手动发送消息
+- `GET /api/send/history` - 获取发送历史
+
+详细 API 文档请查看 `webui/app.py` 中的路由定义。
+
+---
+
+## 🔧 核心工作流程
+
+### 1. 登录流程
+
+```
+用户扫码 → browser.py 打开登录页
+       → login.py 生成二维码
+       → 用户扫码确认
+       → 保存登录态到 state/
+       → 返回登录成功
+```
+
+### 2. 好友列表刷新
+
+```
+触发刷新 → friends.py 启动浏览器
+        → 访问好友列表页面
+        → 解析好友数据（昵称、火花状态等）
+        → 保存到 usersData.json
+        → 关闭浏览器
+```
+
+### 3. 消息发送流程
+
+```
+定时触发 → tasks.py 检查发送条件
+        → 筛选需要发送的好友
+        → msg_builder.py 构建消息内容
+        → protocol_sender.mjs 发送消息
+        → 等待发送确认
+        → 记录发送历史
+        → 更新下次发送时间
+```
+
+### 4. 任务调度逻辑
+
+`tasks.py` 是核心调度器，负责：
+
+- ⏰ 定时检查发送窗口
+- 🔄 循环遍历所有账号
+- 📊 统计发送成功/失败
+- 🛡️ 失败保护（冷却机制）
+- 📝 日志记录
+
+---
+
+## 🐛 调试和开发
+
+### 日志系统
+
+日志文件位于 `logs/` 目录：
+
+```
+logs/
+├── app.log              # 应用主日志
+├── webui.log           # Web UI 日志
+├── tasks.log           # 任务调度日志
+└── browser.log         # 浏览器操作日志
+```
+
+查看实时日志：
+```bash
+tail -f logs/app.log
+```
+
+### 开发建议
+
+1. **修改模板文件**：编辑 `webui/templates/*.html`，刷新浏览器即可看到效果（自动重载已启用）
+2. **修改 Python 代码**：需要重启服务才能生效
+3. **调试浏览器操作**：设置 `browser_headless: false` 可以看到浏览器窗口
+4. **测试消息发送**：使用 Web UI 的"手动发送"功能，避免等待定时任务
+
+### 常见问题
+
+**Q: 登录二维码不显示？**  
+A: 检查 `login_desktop_server.py` 是否正常运行，端口 18090 是否被占用。
+
+**Q: 浏览器启动失败？**  
+A: 确保已安装 Playwright：`playwright install chromium`
+
+**Q: 消息发送失败？**  
+A: 检查网络连接，查看 `logs/tasks.log` 中的错误信息。
+
+**Q: Web UI 无法访问？**  
+A: 检查端口 8787 是否被占用，防火墙是否允许该端口。
+
+---
+
+## 📦 依赖说明
+
+### `requirements.txt` - 核心依赖
+
+```
+playwright>=1.40.0      # 浏览器自动化
+apscheduler>=3.10.0     # 任务调度
+```
+
+### `requirements-web.txt` - Web 依赖
+
+```
+fastapi>=0.104.0        # Web 框架
+uvicorn>=0.24.0         # ASGI 服务器
+jinja2>=3.1.0           # 模板引擎
+```
+
+完整依赖列表请查看对应的 `requirements*.txt` 文件。
+
+---
+
+## 🔐 安全注意事项
+
+### 敏感文件保护
+
+以下文件**绝对不要**提交到 Git 仓库：
+
+- ❌ `usersData.json` - 包含账号数据和好友信息
+- ❌ `webui_settings.json` - 包含管理员密码
+- ❌ `.env` - 包含环境变量和密钥
+- ❌ `state/` - 包含浏览器登录态
+- ❌ `logs/` - 可能包含敏感日志
+- ❌ `.im_sdk_cache/` - IM SDK 缓存
+
+已在 `.gitignore` 中配置忽略这些文件。
+
+### 密码安全
+
+- 修改 `webui_settings.json` 中的默认管理员密码
+- 不要在配置文件中明文存储密码
+- 使用环境变量管理敏感配置
+
+---
+
+## 📚 相关文档
+
+- [项目主 README](../README.md) - 整体介绍和快速开始
+- [使用文档](docs/usage.md) - 详细使用教程
+- [更新日志](CHANGELOG.md) - 版本更新历史
+- [Docker 部署](../docker-compose.yml) - 容器编排配置
+
+---
+
+## 🤝 贡献指南
+
+欢迎提交代码改进和功能建议！
+
+开发规范：
+- Python 代码遵循 PEP 8 规范
+- 提交前运行测试确保功能正常
+- 添加必要的代码注释
+- 更新相关文档
+
+---
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE) 文件
+
+---
+
+<div align="center">
+
+**返回 [项目主页](../README.md)**
+
+Made with ❤️ by [halfwaystudent](https://github.com/halfwaystudent)
+
+</div>
