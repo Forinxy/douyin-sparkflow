@@ -383,13 +383,14 @@ mode: rule
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！
+本项目目前作为个人项目维护，暂不接受外部 Pull Request。
 
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启 Pull Request
+如果你有：
+- 🐛 **发现问题** - 欢迎提交 [Issue](https://github.com/halfwaystudent/douyin-sparkflow/issues) 报告 Bug
+- 💡 **功能建议** - 欢迎在 Issue 中提出改进想法
+- 🤔 **使用疑问** - 可以在 [Linux Do 社区](https://linux.do) 或 Issue 中讨论
+
+感谢你的理解和支持！
 
 ---
 
