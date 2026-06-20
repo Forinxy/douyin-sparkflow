@@ -33,20 +33,6 @@
   <p><i>Web 管理控制台 - 仪表盘视图（亮色主题）</i></p>
 </div>
 
-<details>
-<summary>📷 更多界面截图</summary>
-
-### 登录工作区
-<img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 223607.png" alt="登录工作区" width="600"/>
-
-### 账号管理
-<img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 224614.png" alt="账号管理" width="600"/>
-
-### 发送控制台
-<img src="DouYinSparkFlow/docs/images/屏幕截图 2026-02-14 224915.png" alt="发送控制台" width="600"/>
-
-</details>
-
 ---
 
 ## ✨ 功能特性
