@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import hashlib
 import logging
 import os
@@ -421,6 +421,147 @@ def _message_probe_text(message):
     return str(message or "").strip()
 
 
+def _normalize_message_text(value):
+    return "\n".join(
+        line.strip()
+        for line in str(value or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        if line.strip()
+    ).strip()
+
+
+async def _detect_send_failure_indicator(page):
+    """Return a short string describing a visible send-failure UI element, or ""."""
+    try:
+        return await page.evaluate(
+            """() => {
+                // Red exclamation icon commonly used by chat UIs for failed sends.
+                const failIcons = document.querySelectorAll(
+                    "svg[class*='fail'], svg[class*='Fail'], svg[class*='error'], svg[class*='Error'],"
+                    + " [class*='exclamation'], [class*='Exclamation'],"
+                    + " [class*='retry'], [class*='Retry'], [class*='resend'], [class*='Resend']"
+                );
+                for (const el of failIcons) {
+                    const r = el.getBoundingClientRect();
+                    if (r.width > 0 && r.height > 0) {
+                        // Climb up to find the associated message row text.
+                        let row = el.closest("li, [role='listitem'], [class*='message'], [class*='Message'], [class*='item']");
+                        let snippet = String(row?.innerText || "").slice(0, 40);
+                        return "fail_icon(" + (el.className || "").slice(0, 60) + ") near=" + snippet;
+                    }
+                }
+                // Explicit failure / retry text.
+                const bodyText = String(document.body?.innerText || "");
+                const failKeywords = ["发送失败", "重试", "重新发送", "send failed", "retry", "resend"];
+                for (const kw of failKeywords) {
+                    if (bodyText.includes(kw)) {
+                        return "fail_text=" + kw;
+                    }
+                }
+                return "";
+            }"""
+        )
+    except Exception:
+        return ""
+
+
+async def snapshot_last_own_message(page, chat_input=None):
+    try:
+        return await page.evaluate(
+            r"""() => {
+                // ---- DOM structure (douyin creator private message) ----
+                // Each row is <div class="box-item-W0TV01 ...">...</div>.
+                //   - time separator:   class contains "time-" (e.g. time-Tl7Z4j)
+                //   - own message:       class contains "is-me"   (e.g. is-me-cb9NAa)
+                //   - peer message:      no "is-me" and no "time-"
+                // Text is inside <pre class="text-...">.
+
+                const allRows = Array.from(
+                    document.querySelectorAll("[class*='box-item-']")
+                ).filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+
+                // Walk backwards to find the boundary: first time separator that
+                // indicates yesterday or earlier. Everything after it is "today".
+                let todayStart = 0;
+                for (let i = allRows.length - 1; i >= 0; i--) {
+                    const cls = String(allRows[i].className || "");
+                    if (!cls.includes("time-")) continue;
+                    const label = String(allRows[i].innerText || "").trim();
+                    // "今天" / "刚刚" / "N分钟前" / pure time like "11:01" => today
+                    // "昨天" / "星期X" / "2026-..." => not today
+                    if (/^(昨天|星期|20\d{2}-)/.test(label)) {
+                        todayStart = i + 1;
+                        break;
+                    }
+                }
+
+                // From bottom, find the last own-message row within today's section.
+                for (let i = allRows.length - 1; i >= todayStart; i--) {
+                    const cls = String(allRows[i].className || "");
+                    if (!cls.includes("is-me")) continue;
+                    if (cls.includes("time-")) continue;
+                    const pre = allRows[i].querySelector("pre, [class*='text-']");
+                    const text = String(pre?.innerText || allRows[i].innerText || "").trim();
+                    if (!text) continue;
+                    const rect = allRows[i].getBoundingClientRect();
+                    return {
+                        text,
+                        centerX: rect.left + rect.width / 2,
+                        centerY: rect.top + rect.height / 2,
+                        top: rect.top,
+                        bottom: rect.bottom,
+                        right: rect.right,
+                        className: cls.slice(0, 240),
+                    };
+                }
+                return null;
+            }""",
+        )
+    except Exception as exc:
+        logger.debug("Unable to snapshot last own message: %s", exc)
+        return None
+
+
+async def count_today_own_message_matches(page, target_text):
+    """Count how many of *target_text* appear in today's own-message bubbles."""
+    try:
+        return await page.evaluate(
+            r"""(targetText) => {
+                const allRows = Array.from(
+                    document.querySelectorAll("[class*='box-item-']")
+                ).filter(el => {
+                    const r = el.getBoundingClientRect();
+                    return r.width > 0 && r.height > 0;
+                });
+                let todayStart = 0;
+                for (let i = allRows.length - 1; i >= 0; i--) {
+                    const cls = String(allRows[i].className || "");
+                    if (!cls.includes("time-")) continue;
+                    const label = String(allRows[i].innerText || "").trim();
+                    if (/^(昨天|星期|20\d{2}-)/.test(label)) {
+                        todayStart = i + 1;
+                        break;
+                    }
+                }
+                let count = 0;
+                for (let i = todayStart; i < allRows.length; i++) {
+                    const cls = String(allRows[i].className || "");
+                    if (!cls.includes("is-me")) continue;
+                    if (cls.includes("time-")) continue;
+                    const pre = allRows[i].querySelector("pre, [class*='text-']");
+                    const text = String(pre?.innerText || allRows[i].innerText || "").trim();
+                    if (text === targetText) count++;
+                }
+                return count;
+            }""",
+            _normalize_message_text(target_text),
+        )
+    except Exception:
+        return 0
+
+
 async def count_visible_message_matches(page, message, chat_input=None):
     probe = _message_probe_text(message)
     if not probe:
@@ -467,31 +608,82 @@ async def count_visible_message_matches(page, message, chat_input=None):
     return visible_count
 
 
-async def confirm_message_sent(page, chat_input, message, before_visible_count=None):
-    if before_visible_count is None:
-        before_visible_count = await count_visible_message_matches(page, message, chat_input=chat_input)
+async def confirm_message_sent(page, chat_input, message, before_snapshot=None):
+    expected_message = _normalize_message_text(message)
+    before_signature = None
+    if before_snapshot:
+        before_signature = (
+            before_snapshot.get("text"),
+            round(float(before_snapshot.get("centerY") or 0), 1),
+            round(float(before_snapshot.get("right") or 0), 1),
+        )
+    # Record how many times the target text already appears today so we can
+    # detect a *new* occurrence even if the last-own-message slot was taken by
+    # a manual send from the user's phone.
+    before_count = await count_today_own_message_matches(page, expected_message)
 
     last_input_text = ""
-    last_visible_count = before_visible_count
+    last_snapshot = None
     deadline = asyncio.get_running_loop().time() + 8
     while True:
         await asyncio.sleep(1)
         last_input_text = await read_chat_input_text(chat_input)
-        last_visible_count = await count_visible_message_matches(page, message, chat_input=chat_input)
-        if not last_input_text and last_visible_count > before_visible_count:
+        # Fail fast if the page shows a send-failure indicator (red exclamation,
+        # retry button, or explicit failure text) before we even check the bubble.
+        failure_indicator = await _detect_send_failure_indicator(page)
+        if failure_indicator:
+            return False, f"send failure indicator detected: {failure_indicator}"
+        last_snapshot = await snapshot_last_own_message(page, chat_input=chat_input)
+        last_signature = None
+        if last_snapshot:
+            last_signature = (
+                last_snapshot.get("text"),
+                round(float(last_snapshot.get("centerY") or 0), 1),
+                round(float(last_snapshot.get("right") or 0), 1),
+            )
+        if (
+            not last_input_text
+            and last_snapshot
+            and _normalize_message_text(last_snapshot.get("text")) == expected_message
+            and last_signature != before_signature
+        ):
             return (
                 True,
-                f"visible message count increased {before_visible_count}->{last_visible_count}; chat input cleared",
+                "last own message matches sent text; chat input cleared",
             )
+        # Count fallback: even if the last own bubble is not our message (e.g.
+        # the user sent something else from their phone), a new occurrence of
+        # the target text today means our send went through.
+        if (
+            not last_input_text
+            and not last_snapshot
+        ):
+            after_count = await count_today_own_message_matches(page, expected_message)
+            if after_count > before_count:
+                return (
+                    True,
+                    "count fallback: new own message with target text appeared today",
+                )
         if asyncio.get_running_loop().time() >= deadline:
             break
 
     if last_input_text:
         return False, f"chat input still contains: {last_input_text!r}"
+    # Final count fallback before giving up.
+    after_count = await count_today_own_message_matches(page, expected_message)
+    if after_count > before_count:
+        return (
+            True,
+            "count fallback at deadline: new own message with target text appeared today",
+        )
+    if last_snapshot:
+        return False, (
+            "last own message did not match sent text: "
+            f"expected={expected_message!r} actual={last_snapshot.get('text')!r}"
+        )
     return (
         False,
-        f"chat input cleared but visible message count did not increase: "
-        f"before={before_visible_count} after={last_visible_count}",
+        "chat input cleared but no new own message bubble was confirmed",
     )
 
 
@@ -511,37 +703,17 @@ async def find_visible_spark_message_candidate(page, chat_input=None, candidates
     return ""
 
 
-async def detect_message_already_sent(page, chat_input, message, before_visible_count=None):
+async def detect_message_already_sent(page, chat_input, message, before_snapshot=None):
     try:
         if chat_input is not None:
             sent_ok, detail = await confirm_message_sent(
                 page,
                 chat_input,
                 message,
-                before_visible_count=before_visible_count,
+                before_snapshot=before_snapshot,
             )
             if sent_ok:
                 return True, detail
-    except Exception:
-        pass
-
-    first_line = _message_probe_text(message)
-    if not first_line:
-        return False, ""
-
-    try:
-        visible_count = await count_visible_message_matches(page, first_line, chat_input=chat_input)
-        if visible_count > (before_visible_count or 0):
-            return True, "message bubble located after failure"
-    except Exception:
-        pass
-
-    try:
-        input_text = await read_chat_input_text(chat_input) if chat_input is not None else ""
-        if not input_text:
-            matched_candidate = await find_visible_spark_message_candidate(page, chat_input=chat_input)
-            if matched_candidate:
-                return True, f"spark message candidate visible in current chat: {matched_candidate!r}"
     except Exception:
         pass
 
@@ -1980,7 +2152,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                 yielded_targets.add(target_name)
                 message = ""
                 chat_input = None
-                visible_message_count_before = None
+                last_own_message_before = None
                 try:
                     await save_debug_artifacts(page, account_name, target_name, "selected-friend")
                     chat_input, selector_used = await locate_chat_input(page)
@@ -1988,16 +2160,15 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
 
                     message = build_message()
                     logger.info("Prepared message for %s/%s: %r", account_name, target_name, message)
-                    visible_message_count_before = await count_visible_message_matches(
+                    last_own_message_before = await snapshot_last_own_message(
                         page,
-                        message,
                         chat_input=chat_input,
                     )
                     logger.info(
-                        "Visible message count before send for %s/%s: %s",
+                        "Last own message before send for %s/%s: %r",
                         account_name,
                         target_name,
-                        visible_message_count_before,
+                        (last_own_message_before or {}).get("text", ""),
                     )
 
                     lines = message.split("\n")
@@ -2015,7 +2186,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                         page,
                         chat_input,
                         message,
-                        before_visible_count=visible_message_count_before,
+                        before_snapshot=last_own_message_before,
                     )
                     await save_debug_artifacts(page, account_name, target_name, "after-send")
 
@@ -2043,7 +2214,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                             page,
                             chat_input,
                             message,
-                            before_visible_count=visible_message_count_before,
+                            before_snapshot=last_own_message_before,
                         )
                     if sent_ok:
                         logger.warning(
