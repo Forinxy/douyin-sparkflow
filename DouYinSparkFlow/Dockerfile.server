@@ -39,13 +39,13 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list \
       websockify \
       x11vnc \
       xfonts-intl-chinese \
-    && curl -fsSL -x http://127.0.0.1:7890 https://download.docker.com/linux/static/stable/x86_64/docker-25.0.3.tgz -o docker.tgz \
+    && curl -fsSL ${HTTP_PROXY:+-x "$HTTP_PROXY"} https://download.docker.com/linux/static/stable/x86_64/docker-25.0.3.tgz -o docker.tgz \
     && tar xzvf docker.tgz \
     && mv docker/docker /usr/bin/docker \
     && chmod +x /usr/bin/docker \
     && rm -rf docker docker.tgz \
     && mkdir -p /usr/local/lib/docker/cli-plugins \
-    && curl -SL -x http://127.0.0.1:7890 https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose \
+    && curl -SL ${HTTP_PROXY:+-x "$HTTP_PROXY"} https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose \
     && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose \
     && rm -rf /var/lib/apt/lists/*
 
