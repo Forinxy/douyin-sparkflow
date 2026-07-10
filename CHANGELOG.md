@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-07-11
+
+- Reworked the Web console into a responsive unified operations dashboard with local Lucide icons, clearer account/target status, and safer confirmation dialogs.
+- Added strong send-confirmation state handling, retryable unconfirmed targets, failure categorization, account cooldowns, and focused manual retry modes.
+- Improved friend-list discovery, persistent browser profiles, Cookie synchronization, and browser/protocol failure persistence.
+- Expanded the login desktop service with more robust Douyin identity export and bounded diagnostic endpoints.
+- Added authenticated no-cache overview data that excludes message contents, Cookie data, receipts, and server credentials.
+- Added unit coverage for send-state behavior, stale-lock safety, overview redaction, authentication, and public settings.
+- Made stale-lock PID probing portable across Linux and Windows and sanitized the public configuration template.
+- Removed obsolete standalone account, login-workspace, and settings templates now consolidated into the dashboard.
+
 ## 2026-05-30
 
 - Redesigned the Web UI into dedicated overview, login workspace, accounts, send console, logs, and settings views.

@@ -4,518 +4,134 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
     <title>{% block title %}续火花{% endblock %}</title>
-    <style>
-      /* ============ DARK (default) ============ */
-      :root {
-        --bg: #0a0e1c;
-        --bg-glow: rgba(255, 77, 109, 0.10);
-        --surface: #161e34;
-        --surface-subtle: #1a2440;
-        --surface-tint: rgba(255, 255, 255, 0.06);
-        --border: rgba(255, 255, 255, 0.08);
-        --border-strong: rgba(255, 255, 255, 0.14);
-        --text: #eaf0ff;
-        --text-main: #eaf0ff;
-        --text-soft: #9aa6c8;
-        --text-faint: #64709a;
-        --primary: #ff7a3d;
-        --primary-strong: #ff4d6d;
-        --primary-deep: #ff2da8;
-        --primary-soft: rgba(255, 122, 61, 0.14);
-        --success: #2bd47f;
-        --success-soft: rgba(43, 212, 127, 0.14);
-        --danger: #ff5470;
-        --danger-soft: rgba(255, 84, 112, 0.14);
-        --warning: #ffb547;
-        --warning-soft: rgba(255, 181, 71, 0.14);
-        --info: #5b8bff;
-        --info-soft: rgba(91, 139, 255, 0.16);
-        --shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
-        --shadow-soft: 0 10px 28px rgba(0, 0, 0, 0.30);
-        --ring: 0 0 0 4px rgba(255, 122, 61, 0.22);
-        --fire-grad: linear-gradient(135deg, #ffb04a 0%, #ff7a3d 30%, #ff4d6d 65%, #ff2da8 100%);
-        --glow-fire: 0 18px 50px rgba(255, 77, 109, 0.28);
-        --sidebar-bg: linear-gradient(200deg, rgba(22, 30, 52, 0.96) 0%, rgba(14, 20, 38, 0.96) 100%);
-        --sidebar-text: rgba(255, 255, 255, 0.72);
-        --sidebar-text-strong: #ffffff;
-        --sidebar-faint: rgba(255, 255, 255, 0.42);
-        --sidebar-hover: rgba(255, 255, 255, 0.06);
-        --sidebar-active-bg: linear-gradient(135deg, rgba(255, 122, 61, 0.22), rgba(255, 45, 168, 0.10));
-        --sidebar-active-border: rgba(255, 122, 61, 0.28);
-        --panel-glass: rgba(22, 30, 52, 0.72);
-        --glass-blur: blur(10px);
-        --body-bg:
-          radial-gradient(900px circle at 88% -8%, rgba(255, 77, 109, 0.16), transparent 50%),
-          radial-gradient(760px circle at -6% 12%, rgba(91, 139, 255, 0.14), transparent 48%),
-          linear-gradient(180deg, #0a0e1c 0%, #0b1120 100%);
-        --title-grad: linear-gradient(120deg, #ffffff 0%, #ffd9c8 60%, #ff7a9d 120%);
-        --th-bg: rgba(255, 255, 255, 0.04);
-        --row-hover: rgba(255, 255, 255, 0.03);
-        --table-border: rgba(255, 255, 255, 0.06);
-        --input-bg: rgba(255, 255, 255, 0.04);
-        --code-bg: #0c1426;
-        --code-light-bg: rgba(255, 255, 255, 0.03);
-        --empty-bg: rgba(255, 255, 255, 0.02);
-        --radius-xl: 24px;
-        --radius-lg: 20px;
-        --radius-md: 16px;
-        --radius-sm: 12px;
-      }
-
-      /* ============ LIGHT ============ */
-      [data-theme="light"] {
-        --bg: #eef2f9;
-        --bg-glow: rgba(255, 122, 61, 0.08);
-        --surface: #ffffff;
-        --surface-subtle: #f7faff;
-        --surface-tint: #f0f4fb;
-        --border: #e3e9f3;
-        --border-strong: #d0d9e8;
-        --text: #14213d;
-        --text-main: #14213d;
-        --text-soft: #566079;
-        --text-faint: #8a96b3;
-        --primary: #ff7a3d;
-        --primary-strong: #ff4d6d;
-        --primary-deep: #ff2da8;
-        --primary-soft: rgba(255, 122, 61, 0.10);
-        --success: #18a558;
-        --success-soft: rgba(24, 165, 88, 0.14);
-        --danger: #e5484a;
-        --danger-soft: rgba(229, 72, 74, 0.12);
-        --warning: #e08a0c;
-        --warning-soft: rgba(224, 138, 12, 0.14);
-        --info: #3a66ff;
-        --info-soft: rgba(58, 102, 255, 0.12);
-        --shadow: 0 20px 45px rgba(20, 33, 61, 0.10);
-        --shadow-soft: 0 8px 24px rgba(20, 33, 61, 0.06);
-        --ring: 0 0 0 4px rgba(255, 122, 61, 0.18);
-        --glow-fire: 0 16px 40px rgba(255, 77, 109, 0.20);
-        --sidebar-bg: #ffffff;
-        --sidebar-text: #566079;
-        --sidebar-text-strong: #14213d;
-        --sidebar-faint: #8a96b3;
-        --sidebar-hover: rgba(20, 33, 61, 0.04);
-        --sidebar-active-bg: linear-gradient(135deg, rgba(255, 122, 61, 0.16), rgba(255, 45, 168, 0.06));
-        --sidebar-active-border: rgba(255, 122, 61, 0.30);
-        --panel-glass: #ffffff;
-        --glass-blur: none;
-        --body-bg:
-          radial-gradient(900px circle at 88% -8%, rgba(255, 77, 109, 0.10), transparent 50%),
-          radial-gradient(760px circle at -6% 12%, rgba(91, 139, 255, 0.10), transparent 48%),
-          linear-gradient(180deg, #f1f5fc 0%, #e9eef7 100%);
-        --title-grad: linear-gradient(120deg, #14213d 0%, #c45a3a 60%, #e83e7c 120%);
-        --th-bg: #f3f6fc;
-        --row-hover: rgba(58, 102, 255, 0.04);
-        --table-border: #eaeff7;
-        --input-bg: #ffffff;
-        --code-bg: #0f1728;
-        --code-light-bg: #f7f9fd;
-        --empty-bg: rgba(255, 255, 255, 0.72);
-      }
-
-      * { box-sizing: border-box; }
-      html, body { margin: 0; min-height: 100%; }
-
-      body {
-        font-family: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-        color: var(--text);
-        -webkit-font-smoothing: antialiased;
-        text-rendering: optimizeLegibility;
-        background: var(--body-bg);
-        background-attachment: fixed;
-      }
-
-      a { color: inherit; text-decoration: none; }
-      button, input, textarea, select { font: inherit; }
-      ::selection { background: rgba(255, 77, 109, 0.30); }
-
-      .main-area ::-webkit-scrollbar,
-      .table-shell ::-webkit-scrollbar,
-      .code-block::-webkit-scrollbar { width: 10px; height: 10px; }
-      .main-area ::-webkit-scrollbar-thumb,
-      .table-shell ::-webkit-scrollbar-thumb,
-      .code-block::-webkit-scrollbar-thumb {
-        background: var(--text-faint);
-        border-radius: 999px;
-        border: 2px solid transparent;
-        background-clip: padding-box;
-        opacity: 0.5;
-      }
-      .main-area ::-webkit-scrollbar-thumb:hover { opacity: 0.8; background-clip: padding-box; }
-
-      .app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
-
-      /* ---------- sidebar ---------- */
-      .sidebar {
-        position: sticky; top: 0; height: 100vh;
-        padding: 22px 14px 18px;
-        border-right: 1px solid var(--border);
-        background: var(--sidebar-bg);
-        color: var(--sidebar-text);
-        display: flex; flex-direction: column; gap: 22px;
-        backdrop-filter: var(--glass-blur);
-      }
-      .brand { display: flex; align-items: center; gap: 12px; padding: 4px 6px 14px; border-bottom: 1px solid var(--border); }
-      .brand-mark {
-        width: 40px; height: 40px; border-radius: 13px;
-        background: var(--fire-grad); color: #fff;
-        display: inline-flex; align-items: center; justify-content: center;
-        font-size: 19px; font-weight: 800;
-        box-shadow: var(--glow-fire);
-      }
-      .brand-title { font-size: 16px; font-weight: 800; letter-spacing: 0.01em; color: var(--sidebar-text-strong); }
-      .brand-subtitle { margin-top: 2px; font-size: 11.5px; color: var(--sidebar-faint); }
-      .sidebar-section-title {
-        margin: 0 10px 8px; font-size: 10.5px; color: var(--sidebar-faint);
-        letter-spacing: 0.16em; text-transform: uppercase;
-      }
-      .nav-list { display: grid; gap: 4px; }
-      .nav-item {
-        position: relative; display: flex; align-items: center; gap: 12px;
-        padding: 11px 14px; border-radius: 11px;
-        color: var(--sidebar-text); font-size: 14px; font-weight: 600;
-        transition: background 0.18s ease, color 0.18s ease;
-      }
-      .nav-item:hover { background: var(--sidebar-hover); color: var(--sidebar-text-strong); }
-      .nav-item.active {
-        background: var(--sidebar-active-bg);
-        color: var(--sidebar-text-strong); font-weight: 700;
-        box-shadow: inset 0 0 0 1px var(--sidebar-active-border);
-      }
-      .nav-item.active::before {
-        content: ""; position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
-        width: 3px; height: 18px; border-radius: 3px; background: var(--fire-grad);
-      }
-      .nav-icon { width: 18px; text-align: center; font-size: 14px; flex: 0 0 18px; opacity: 0.9; }
-
-      .sidebar-footer {
-        margin-top: auto; padding: 14px; border-radius: 16px;
-        background: var(--surface-tint); border: 1px solid var(--border);
-      }
-      .sidebar-footer-head { display: flex; align-items: center; gap: 10px; }
-      .sidebar-footer-mark {
-        width: 34px; height: 34px; border-radius: 10px;
-        background: var(--fire-grad); color: #fff;
-        display: inline-flex; align-items: center; justify-content: center; font-weight: 800;
-      }
-      .sidebar-footer-title { font-size: 13.5px; font-weight: 700; color: var(--sidebar-text-strong); }
-      .sidebar-footer-subtitle { margin-top: 2px; font-size: 11.5px; color: var(--sidebar-faint); }
-      .sidebar-logout {
-        width: 100%; justify-content: center; display: flex; align-items: center; gap: 8px;
-        border: 1px solid var(--border); color: var(--sidebar-text);
-        background: transparent; box-shadow: none; padding: 9px;
-      }
-      .sidebar-logout:hover {
-        border-color: rgba(255, 84, 112, 0.4); color: var(--danger);
-        background: var(--danger-soft); transform: none; box-shadow: none; filter: none;
-      }
-
-      /* ---------- main ---------- */
-      .main-area { min-width: 0; padding: 24px 28px 36px; }
-      .page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 24px; }
-      .page-header__title { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-      .page-title {
-        font-size: 28px; line-height: 1.12; font-weight: 800; letter-spacing: -0.02em;
-        background: var(--title-grad);
-        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-      }
-      .page-subtitle { font-size: 14px; color: var(--text-soft); font-weight: 600; margin-top: 4px; }
-
-      .page-header__right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-
-      .theme-toggle {
-        width: 38px; height: 38px; border-radius: 11px; flex: 0 0 38px;
-        border: 1px solid var(--border); background: var(--surface); color: var(--text-soft);
-        display: inline-flex; align-items: center; justify-content: center;
-        font-size: 17px; cursor: pointer; transition: 0.18s; padding: 0;
-        box-shadow: var(--shadow-soft);
-      }
-      .theme-toggle:hover { color: var(--primary); border-color: var(--primary); transform: none; box-shadow: var(--shadow-soft); filter: none; }
-      .theme-toggle .ico-moon { display: none }
-      .theme-toggle .ico-sun { display: inline }
-      [data-theme="light"] .theme-toggle .ico-moon { display: inline }
-      [data-theme="light"] .theme-toggle .ico-sun { display: none }
-
-      .page-header__actions {
-        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-        padding: 6px; border-radius: 14px;
-        background: var(--panel-glass); border: 1px solid var(--border);
-        box-shadow: var(--shadow-soft); backdrop-filter: var(--glass-blur);
-      }
-      .page-header__actions > form { margin: 0; }
-      .page-header__actions button,
-      .page-header__actions .link-button,
-      .page-header__actions .ghost-button,
-      .page-header__actions .soft-button {
-        margin: 0; border-radius: 10px; padding: 9px 16px; font-size: 13.5px; font-weight: 700;
-        box-shadow: none; background: transparent; color: var(--text-soft);
-        border: 1px solid transparent; transform: none; filter: none;
-        transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-      }
-      .page-header__actions button:hover,
-      .page-header__actions .link-button:hover,
-      .page-header__actions .ghost-button:hover,
-      .page-header__actions .soft-button:hover {
-        transform: none; filter: none; box-shadow: none;
-        background: var(--primary-soft); color: var(--primary); border-color: rgba(255, 122, 61, 0.22);
-      }
-      .page-header__actions button:active { transform: none; box-shadow: none; }
-      .page-header__actions button[type="submit"]:not(.soft-button):not(.ghost-button):not(.danger-button):not(.success-button) {
-        background: var(--fire-grad); color: #fff; border-color: transparent;
-        box-shadow: 0 8px 18px rgba(255, 77, 109, 0.32);
-      }
-      .page-header__actions button[type="submit"]:not(.soft-button):not(.ghost-button):not(.danger-button):not(.success-button):hover {
-        filter: brightness(1.06); color: #fff; border-color: transparent;
-        box-shadow: 0 10px 22px rgba(255, 77, 109, 0.40); transform: none;
-      }
-      .page-header__actions button:disabled {
-        background: transparent; color: var(--text-faint);
-        border: 1px dashed var(--border-strong); box-shadow: none; cursor: not-allowed; opacity: 1;
-      }
-
-      .page-body { display: grid; gap: 22px; }
-      .stack { display: grid; gap: 22px; }
-
-      /* ---------- panel ---------- */
-      .panel {
-        background: var(--panel-glass); border: 1px solid var(--border);
-        border-radius: var(--radius-lg); box-shadow: var(--shadow);
-        backdrop-filter: var(--glass-blur); padding: 22px;
-      }
-      .section-title-row,
-      .panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-      .section-title-row h2, .panel h2, .panel h3, .panel h4 { margin: 0; }
-      .muted { color: var(--text-soft); }
-      .muted.compact { margin: 6px 0 0; font-size: 13px; line-height: 1.6; }
-
-      /* ---------- stat cards (kept for send_console/logs compat) ---------- */
-      .stats-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
-      .stat-card {
-        min-height: 124px; border-radius: var(--radius-md);
-        border: 1px solid var(--border); background: var(--panel-glass);
-        box-shadow: var(--shadow-soft); backdrop-filter: var(--glass-blur);
-        padding: 20px 22px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
-        transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-      }
-      .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: var(--sidebar-active-border); }
-      .stat-meta { display: grid; gap: 10px; }
-      .stat-label { font-size: 14px; color: var(--text-soft); }
-      .stat-value { font-size: 28px; line-height: 1; font-weight: 800; letter-spacing: -0.03em; }
-      .stat-help { font-size: 13px; color: var(--text-soft); }
-      .stat-help.positive { color: var(--success); }
-      .stat-help.negative { color: var(--danger); }
-      .stat-icon {
-        width: 58px; height: 58px; border-radius: 50%;
-        display: inline-flex; align-items: center; justify-content: center;
-        font-size: 24px; font-weight: 700;
-      }
-      .stat-icon.blue { background: var(--info-soft); color: var(--info); }
-      .stat-icon.green { background: var(--success-soft); color: var(--success); }
-      .stat-icon.red { background: var(--danger-soft); color: var(--danger); }
-      .stat-icon.orange { background: var(--warning-soft); color: var(--warning); }
-
-      .layout-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; align-items: start; }
-      .overview-time { display: inline-flex; align-items: center; gap: 8px; color: var(--text-soft); font-size: 14px; font-weight: 600; }
-      .overview-time::before {
-        content: ""; width: 10px; height: 10px; border-radius: 50%;
-        background: var(--fire-grad); box-shadow: 0 0 0 4px rgba(255, 122, 61, 0.14);
-      }
-
-      /* ---------- pills / chips ---------- */
-      .status-pill, .pill, .status-chip {
-        display: inline-flex; align-items: center; gap: 6px;
-        border-radius: 999px; padding: 6px 12px; font-size: 12px; font-weight: 700;
-        color: var(--text-soft); background: var(--surface-tint); border: 1px solid var(--border);
-      }
-      .pill.soft, .status-pill.soft, .status-chip.success { color: var(--success); background: var(--success-soft); }
-      .pill.warning, .status-pill.warning, .status-chip.warning { color: var(--warning); background: var(--warning-soft); }
-      .pill.danger, .status-pill.danger, .status-chip.danger { color: var(--danger); background: var(--danger-soft); }
-      .status-chip.info { color: var(--info); background: var(--info-soft); }
-      .status-line { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-
-      /* ---------- buttons ---------- */
-      button, .link-button {
-        appearance: none; border: none; border-radius: 12px;
-        background: var(--fire-grad); color: #fff; cursor: pointer;
-        padding: 11px 18px; font-weight: 700; letter-spacing: 0.01em;
-        box-shadow: 0 10px 22px rgba(255, 77, 109, 0.26);
-        transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease, filter 0.16s ease;
-      }
-      button:hover, .link-button:hover { transform: translateY(-1px); box-shadow: 0 16px 30px rgba(255, 77, 109, 0.36); filter: brightness(1.05); }
-      button:active, .link-button:active { transform: translateY(0); box-shadow: 0 8px 16px rgba(255, 77, 109, 0.24); }
-      button:focus-visible, .link-button:focus-visible, .nav-item:focus-visible { outline: none; box-shadow: var(--ring); }
-      button:disabled { cursor: not-allowed; opacity: 0.5; transform: none; box-shadow: none; filter: grayscale(0.3); }
-
-      .ghost-button, .soft-button, .danger-button, .success-button { background: var(--surface); box-shadow: none; }
-      .ghost-button { color: var(--text); border: 1px solid var(--border-strong); }
-      .ghost-button:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); box-shadow: none; transform: none; filter: none; }
-      .soft-button { color: var(--primary); background: var(--primary-soft); border: 1px solid rgba(255, 122, 61, 0.20); }
-      .soft-button:hover { background: rgba(255, 122, 61, 0.20); box-shadow: none; transform: none; filter: none; }
-      .danger-button { color: var(--danger); border: 1px solid rgba(255, 84, 112, 0.26); background: var(--danger-soft); }
-      .danger-button:hover { background: rgba(255, 84, 112, 0.20); box-shadow: none; transform: none; filter: none; }
-      .success-button { color: var(--success); border: 1px solid rgba(43, 212, 127, 0.28); background: var(--success-soft); }
-      .success-button:hover { background: rgba(43, 212, 127, 0.20); box-shadow: none; transform: none; filter: none; }
-
-      .button-row, .button-grid { display: grid; gap: 12px; }
-      .button-row.two, .button-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-
-      /* ---------- forms ---------- */
-      input[type="text"], input[type="password"], input[type="search"], input[type="number"], textarea, select {
-        width: 100%; border: 1px solid var(--border-strong); border-radius: 12px;
-        background: var(--input-bg); color: var(--text); padding: 11px 13px; outline: none;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      }
-      input:focus, textarea:focus, select:focus { border-color: var(--primary); box-shadow: var(--ring); }
-      input::placeholder, textarea::placeholder { color: var(--text-faint); }
-      textarea { min-height: 96px; resize: vertical; }
-      .stack-form { display: grid; gap: 14px; }
-      .stack-form label { display: grid; gap: 8px; }
-      .stack-form span { font-size: 13px; color: var(--text-soft); }
-      .check-row { display: flex !important; align-items: center; gap: 10px; }
-      .check-row span { color: var(--text); }
-
-      /* ---------- flash ---------- */
-      .flash { border-radius: 14px; padding: 14px 16px; border: 1px solid var(--border); box-shadow: var(--shadow-soft); background: var(--surface); }
-      .flash.success { background: var(--success-soft); color: var(--success); border-color: rgba(43, 212, 127, 0.24); }
-      .flash.warning { background: var(--warning-soft); color: var(--warning); border-color: rgba(255, 181, 71, 0.24); }
-      .flash.error { background: var(--danger-soft); color: var(--danger); border-color: rgba(255, 84, 112, 0.24); }
-
-      /* ---------- tables ---------- */
-      .table-shell { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
-      .table-shell.scrollable { overflow: auto; }
-      table { width: 100%; border-collapse: collapse; }
-      th, td { padding: 12px 14px; border-bottom: 1px solid var(--table-border); text-align: left; font-size: 13px; vertical-align: middle; }
-      th { background: var(--th-bg); color: var(--text-soft); font-weight: 700; letter-spacing: 0.01em; }
-      tbody tr:last-child td { border-bottom: none; }
-      tbody tr:hover td { background: var(--row-hover); }
-
-      /* ---------- code ---------- */
-      .code-block {
-        margin: 0; padding: 16px; border-radius: 14px;
-        background: var(--code-bg); color: #cdd8f5; overflow: auto;
-        font-size: 12px; line-height: 1.7;
-      }
-      .code-block.light { color: var(--text); background: var(--code-light-bg); border: 1px solid var(--border); }
-
-      .empty-state {
-        padding: 34px 20px; text-align: center; border-radius: 16px;
-        border: 1px dashed var(--border-strong); background: var(--empty-bg); color: var(--text-soft);
-      }
-
-      /* ---------- task banner ---------- */
-      .task-state-banner {
-        margin: 0 0 16px; padding: 12px 14px; border-radius: 12px;
-        border: 1px solid var(--border); font-size: 13px; font-weight: 700;
-      }
-      .task-state-banner.success { background: var(--success-soft); color: var(--success); }
-      .task-state-banner.warning { background: var(--warning-soft); color: var(--warning); }
-      .task-state-banner.info { background: var(--info-soft); color: var(--info); }
-
-      @media (max-width: 1380px) {
-        .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .layout-grid { grid-template-columns: 1fr; }
-      }
-      @media (max-width: 1080px) {
-        .app-shell { grid-template-columns: 1fr; }
-        .sidebar { display: none; }
-        .main-area { padding: 18px 16px 28px; }
-        .page-header { flex-direction: column; }
-        .stats-grid, .button-grid, .button-row.two { grid-template-columns: 1fr; }
-      }
-    </style>
+    <link rel="stylesheet" href="/static/app.css?v=20260710">
   </head>
-  <body>
+  <body data-page="{% block page_key %}dashboard{% endblock %}">
+    <header class="mobile-topbar">
+      <button class="icon-button" type="button" data-nav-toggle aria-label="打开导航" title="打开导航">
+        <i data-lucide="menu"></i>
+      </button>
+      <a class="mobile-brand" href="/">
+        <span class="brand-mark"><i data-lucide="flame"></i></span>
+        <span>续火花</span>
+      </a>
+      <button class="icon-button" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">
+        <i data-lucide="sun" class="theme-light-icon"></i>
+        <i data-lucide="moon" class="theme-dark-icon"></i>
+      </button>
+    </header>
+
+    <div class="sidebar-backdrop" data-nav-close></div>
     <div class="app-shell">
-      <aside class="sidebar">
-        <div>
-          <div class="brand">
-            <div class="brand-mark">🔥</div>
-            <div>
-              <div class="brand-title">续火花</div>
-              <div class="brand-subtitle">多账号控制平台</div>
-            </div>
-          </div>
-
-          <p class="sidebar-section-title">导航</p>
-          <nav class="nav-list">
-            <a class="nav-item {% if current_nav|trim == 'dashboard' %}active{% endif %}" href="/">
-              <span class="nav-icon">⌂</span><span>首页总览</span>
-            </a>
-            <a class="nav-item {% if current_nav|trim == 'send_console' %}active{% endif %}" href="/ops/send-console">
-              <span class="nav-icon">✦</span><span>发送控制台</span>
-            </a>
-            <a class="nav-item {% if current_nav|trim == 'logs' %}active{% endif %}" href="/ops/logs">
-              <span class="nav-icon">☰</span><span>发送记录</span>
-            </a>
-          </nav>
-
-          <p class="sidebar-section-title" style="margin-top:18px;">管理</p>
-          <nav class="nav-list">
-            <a class="nav-item" href="/#account-management"><span class="nav-icon">◉</span><span>账号管理</span></a>
-            <a class="nav-item" href="/#config-panel"><span class="nav-icon">▣</span><span>运行配置</span></a>
-            <a class="nav-item" href="/#interactive-login-section"><span class="nav-icon">⚡</span><span>登录抖音账号</span></a>
-            <a class="nav-item" href="/#ops-panel"><span class="nav-icon">☷</span><span>运维操作</span></a>
-            <a class="nav-item" href="/#settings-panel"><span class="nav-icon">⚙</span><span>系统设置</span></a>
-          </nav>
+      <aside class="sidebar" id="app-sidebar" aria-label="主导航">
+        <div class="sidebar-head">
+          <a class="brand" href="/">
+            <span class="brand-mark"><i data-lucide="flame"></i></span>
+            <span>
+              <strong class="brand-title">续火花</strong>
+              <small class="brand-subtitle">多账号控制平台</small>
+            </span>
+          </a>
+          <button class="icon-button sidebar-close" type="button" data-nav-close aria-label="关闭导航" title="关闭导航">
+            <i data-lucide="x"></i>
+          </button>
         </div>
 
-        <div class="sidebar-footer">
-          <div class="sidebar-footer-head">
-            <div class="sidebar-footer-mark">{{ (current_user or "A")[:1] }}</div>
-            <div style="min-width:0;">
-              <div class="sidebar-footer-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ current_user or "未登录" }}</div>
-              <div class="sidebar-footer-subtitle">已登录管理员</div>
+        <nav class="nav-groups">
+          <section>
+            <p class="nav-group-title">工作台</p>
+            <div class="nav-group">
+              <a class="nav-item {% if current_nav|trim == 'dashboard' %}active{% endif %}" href="/">
+                <i data-lucide="layout-dashboard"></i><span>首页总览</span>
+              </a>
+              <a class="nav-item {% if current_nav|trim == 'send_console' %}active{% endif %}" href="/ops/send-console">
+                <i data-lucide="send"></i><span>发送控制台</span>
+              </a>
+              <a class="nav-item {% if current_nav|trim == 'logs' %}active{% endif %}" href="/ops/logs">
+                <i data-lucide="scroll-text"></i><span>发送记录</span>
+              </a>
             </div>
+          </section>
+
+          <section>
+            <p class="nav-group-title">管理</p>
+            <div class="nav-group">
+              <a class="nav-item" href="/#account-management">
+                <i data-lucide="users"></i><span>账号管理</span>
+              </a>
+              <a class="nav-item" href="/#interactive-login-section">
+                <i data-lucide="scan-line"></i><span>登录抖音账号</span>
+              </a>
+              <a class="nav-item" href="/#config-panel">
+                <i data-lucide="sliders-horizontal"></i><span>运行配置</span>
+              </a>
+              <a class="nav-item" href="/#ops-panel">
+                <i data-lucide="wrench"></i><span>运维操作</span>
+              </a>
+              <a class="nav-item" href="/#settings-panel">
+                <i data-lucide="settings"></i><span>系统设置</span>
+              </a>
+            </div>
+          </section>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="user-summary">
+            <span class="user-avatar">{{ (current_user or "A")[:1] }}</span>
+            <span class="user-copy">
+              <strong>{{ current_user or "未登录" }}</strong>
+              <small>管理员</small>
+            </span>
           </div>
-          <form method="post" action="/logout" style="margin-top:14px;">
-            <button type="submit" class="sidebar-logout"><span>⏻</span><span>退出登录</span></button>
+          <form method="post" action="/logout">
+            <button class="button button-quiet button-block" type="submit">
+              <i data-lucide="log-out"></i><span>退出登录</span>
+            </button>
           </form>
         </div>
       </aside>
 
       <main class="main-area">
         <header class="page-header">
-          <div>
-            <div class="page-header__title">
-              <div class="page-title">{% block page_title %}续火花{% endblock %}</div>
-            </div>
-            <div class="page-subtitle">{% block page_subtitle %}多账号发送控制平台{% endblock %}</div>
+          <div class="page-heading">
+            <h1>{% block page_title %}续火花{% endblock %}</h1>
+            <p>{% block page_subtitle %}多账号发送控制平台{% endblock %}</p>
           </div>
-          <div class="page-header__right">
-            <button class="theme-toggle" id="themeToggle" title="切换白天/夜间模式" aria-label="切换主题">
-              <span class="ico-sun">☀</span><span class="ico-moon">☾</span>
+          <div class="page-header-actions">
+            <button class="icon-button desktop-theme-toggle" type="button" data-theme-toggle aria-label="切换主题" title="切换主题">
+              <i data-lucide="sun" class="theme-light-icon"></i>
+              <i data-lucide="moon" class="theme-dark-icon"></i>
             </button>
-            <div class="page-header__actions">
+            <div class="action-bar">
               {% block topbar_actions %}{% endblock %}
             </div>
           </div>
         </header>
 
+        {% if flash %}
+        <div class="flash flash-{{ flash.level }}" role="status">{{ flash.message }}</div>
+        {% endif %}
+
         <div class="page-body">
-          {% if flash %}
-          <div class="flash {{ flash.level }}">{{ flash.message }}</div>
-          {% endif %}
           {% block content %}{% endblock %}
         </div>
       </main>
     </div>
 
+    <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-title">
+      <div class="confirm-icon"><i data-lucide="triangle-alert"></i></div>
+      <h2 id="confirm-title">确认操作</h2>
+      <p id="confirm-message">请确认是否继续。</p>
+      <div class="confirm-actions">
+        <button class="button button-quiet" type="button" data-confirm-cancel>取消</button>
+        <button class="button button-danger" type="button" data-confirm-accept>确认执行</button>
+      </div>
+    </dialog>
+
+    <script defer src="/static/lucide.min.js?v=20260710"></script>
+    <script defer src="/static/app.js?v=20260710"></script>
     {% block scripts %}{% endblock %}
-    <script>
-      (function(){
-        var root = document.documentElement;
-        var btn = document.getElementById('themeToggle');
-        var saved = 'dark';
-        try { saved = localStorage.getItem('sparkflow-theme') || 'dark'; } catch(e){}
-        function apply(t){ root.setAttribute('data-theme', t === 'light' ? 'light' : 'dark'); try{ localStorage.setItem('sparkflow-theme', t); }catch(e){} }
-        apply(saved);
-        if (btn) btn.addEventListener('click', function(){
-          var cur = root.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-          apply(cur === 'light' ? 'dark' : 'light');
-        });
-      })();
-    </script>
   </body>
 </html>

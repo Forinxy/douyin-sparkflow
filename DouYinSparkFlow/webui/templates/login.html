@@ -1,168 +1,83 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
     <title>登录 | 续火花控制台</title>
-    <style>
-      :root {
-        --primary: #ff7a3d;
-        --primary-strong: #ff4d6d;
-        --text: #eaf0ff;
-        --text-soft: #9aa6c8;
-        --border: rgba(255,255,255,0.12);
-        --fire-grad: linear-gradient(135deg,#ffb04a 0%,#ff7a3d 30%,#ff4d6d 65%,#ff2da8 100%);
-      }
-      * { box-sizing: border-box; }
-      html, body { margin: 0; min-height: 100%; }
-      body {
-        min-height: 100vh;
-        display: grid;
-        grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
-        font-family: "Inter", "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-        color: var(--text);
-        -webkit-font-smoothing: antialiased;
-      }
-
-      /* ---- left brand panel ---- */
-      .brand-panel {
-        position: relative; overflow: hidden;
-        padding: 48px 52px;
-        color: #fff;
-        background:
-          radial-gradient(680px circle at 12% 12%, rgba(255,122,61,0.45), transparent 55%),
-          radial-gradient(620px circle at 95% 92%, rgba(255,45,168,0.32), transparent 50%),
-          linear-gradient(205deg, #1a1230 0%, #140e26 56%, #0c0a1a 100%);
-        display: flex; flex-direction: column; justify-content: space-between; gap: 32px;
-      }
-      .brand-panel::after {
-        content: ""; position: absolute; right: -120px; bottom: -120px;
-        width: 360px; height: 360px; border-radius: 50%;
-        background: radial-gradient(circle, rgba(255,77,109,0.32), transparent 68%);
-        pointer-events: none;
-      }
-      .brand-top { display: flex; align-items: center; gap: 14px; position: relative; z-index: 1; }
-      .brand-mark {
-        width: 46px; height: 46px; border-radius: 14px;
-        background: var(--fire-grad); color: #fff;
-        display: inline-flex; align-items: center; justify-content: center;
-        font-size: 22px; font-weight: 800;
-        box-shadow: 0 16px 32px rgba(255,77,109,0.45);
-      }
-      .brand-title { font-size: 18px; font-weight: 800; letter-spacing: 0.01em; }
-      .brand-sub { margin-top: 3px; font-size: 12.5px; color: rgba(255,255,255,0.55); }
-
-      .brand-hero { position: relative; z-index: 1; max-width: 440px; }
-      .brand-hero h1 {
-        margin: 0 0 16px; font-size: 36px; line-height: 1.18; font-weight: 800; letter-spacing: -0.02em;
-      }
-      .brand-hero h1 em {
-        font-style: normal;
-        background: linear-gradient(120deg,#ffd9a0,#ff7a3d 50%,#ff2da8);
-        -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
-      }
-      .brand-hero p { margin: 0; font-size: 15px; line-height: 1.8; color: rgba(255,255,255,0.72); }
-      .brand-features { position: relative; z-index: 1; display: grid; gap: 14px; margin-top: 8px; }
-      .brand-feature { display: flex; align-items: center; gap: 12px; font-size: 13.5px; color: rgba(255,255,255,0.82); }
-      .brand-feature i {
-        font-style: normal; width: 26px; height: 26px; border-radius: 8px;
-        background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14);
-        display: inline-flex; align-items: center; justify-content: center; font-size: 14px;
-      }
-      .brand-foot { position: relative; z-index: 1; font-size: 12px; color: rgba(255,255,255,0.4); }
-
-      /* ---- right form panel ---- */
-      .form-panel {
-        display: flex; align-items: center; justify-content: center; padding: 40px 28px;
-        background:
-          radial-gradient(720px circle at 100% -10%, rgba(255,122,61,0.10), transparent 45%),
-          linear-gradient(180deg, #0a0e1c 0%, #0b1120 100%);
-      }
-      .card { width: min(94vw, 420px); }
-      .card-title { margin: 0 0 6px; font-size: 24px; font-weight: 800; letter-spacing: -0.01em; color: #fff; }
-      .card-lead { margin: 0 0 24px; color: var(--text-soft); line-height: 1.6; font-size: 14px; }
-      form { display: grid; gap: 15px; }
-      label { display: grid; gap: 7px; }
-      label > span { font-size: 13px; color: var(--text-soft); font-weight: 600; }
-      input {
-        width: 100%; border: 1px solid var(--border); border-radius: 12px;
-        padding: 12px 14px; color: var(--text); outline: none;
-        transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        background: rgba(255,255,255,0.04);
-      }
-      input::placeholder { color: var(--text-soft); }
-      input:focus { border-color: var(--primary); box-shadow: 0 0 0 4px rgba(255,122,61,0.22); }
-      button {
-        margin-top: 4px; border: none; border-radius: 12px; padding: 13px 14px;
-        background: var(--fire-grad); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer;
-        box-shadow: 0 14px 28px rgba(255,77,109,0.36);
-        transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
-      }
-      button:hover { transform: translateY(-1px); box-shadow: 0 18px 34px rgba(255,77,109,0.44); filter: brightness(1.05); }
-      button:active { transform: translateY(0); }
-      .flash { margin-bottom: 16px; padding: 12px 14px; border-radius: 12px; font-size: 13px; border: 1px solid transparent; }
-      .flash.success { background: rgba(43,212,127,0.14); color: #2bd47f; border-color: rgba(43,212,127,0.28); }
-      .flash.warning { background: rgba(255,181,71,0.14); color: #ffb547; border-color: rgba(255,181,71,0.28); }
-      .flash.error { background: rgba(255,84,112,0.14); color: #ff5470; border-color: rgba(255,84,112,0.28); }
-      .foot { margin-top: 20px; text-align: center; font-size: 12px; color: #64709a; }
-
-      @media (max-width: 900px) {
-        body { grid-template-columns: 1fr; }
-        .brand-panel { padding: 32px 28px; }
-        .brand-hero h1 { font-size: 26px; }
-        .brand-features { display: none; }
-      }
-    </style>
+    <link rel="stylesheet" href="/static/app.css?v=20260710">
   </head>
-  <body>
-    <aside class="brand-panel">
-      <div class="brand-top">
-        <div class="brand-mark">🔥</div>
-        <div>
-          <div class="brand-title">续火花</div>
-          <div class="brand-sub">多账号控制平台</div>
-        </div>
+  <body class="login-page">
+    <aside class="login-brand-panel">
+      <a class="brand" href="/login">
+        <span class="brand-mark"><i data-lucide="flame"></i></span>
+        <span>
+          <strong class="brand-title">续火花</strong>
+          <small class="brand-subtitle">多账号控制平台</small>
+        </span>
+      </a>
+
+      <div class="login-brand-copy">
+        <h1>让每个好友<br><span>都不再断火花</span></h1>
+        <p>集中查看多账号发送进度、异常目标和登录状态，在一个控制台完成续火花运维。</p>
+        <ul class="login-features">
+          <li><i data-lucide="calendar-clock"></i><span>分时调度与当日未发送兜底</span></li>
+          <li><i data-lucide="badge-check"></i><span>服务端回执与强确认账本</span></li>
+          <li><i data-lucide="scan-line"></i><span>网页内扫码登录与登录态同步</span></li>
+        </ul>
       </div>
 
-      <div class="brand-hero">
-        <h1>让每个好友<br><em>都不再断火花</em></h1>
-        <p>集中管理抖音多账号、目标好友与自动续火花任务，定时发送、失败补发、登录同步一站式运维。</p>
-        <div class="brand-features">
-          <div class="brand-feature"><i>✦</i><span>多账号批量发送与定时调度</span></div>
-          <div class="brand-feature"><i>↻</i><span>失败目标自动补发与重试队列</span></div>
-          <div class="brand-feature"><i>🔥</i><span>网页内交互式登录与登录态同步</span></div>
-        </div>
-      </div>
-
-      <div class="brand-foot">DouYin Spark Flow · Admin Console</div>
+      <small class="muted">DouYin Spark Flow · Admin Console</small>
     </aside>
 
-    <main class="form-panel">
-      <div class="card">
-        <h2 class="card-title">控制台登录</h2>
-        <p class="card-lead">用于管理抖音多账号、目标好友、自动续火花任务与运维配置。</p>
+    <main class="login-form-panel">
+      <section class="login-card">
+        <h2>{% if bootstrapped %}控制台登录{% else %}初始化管理员{% endif %}</h2>
+        <p>登录后可管理账号、目标好友、发送任务与运维配置。</p>
 
         {% if flash %}
-        <div class="flash {{ flash.level }}">{{ flash.message }}</div>
+        <div class="flash flash-{{ flash.level }}" role="status">{{ flash.message }}</div>
         {% endif %}
 
         {% if not bootstrapped %}
-        <form method="post" action="/bootstrap">
-          <label><span>管理员用户名</span><input type="text" name="username" value="admin"></label>
-          <label><span>管理员密码</span><input type="password" name="password"></label>
-          <label><span>确认密码</span><input type="password" name="confirm_password"></label>
-          <button type="submit">初始化管理员账号</button>
+        <form method="post" action="/bootstrap" class="stack-form">
+          <label>
+            <span>管理员用户名</span>
+            <input type="text" name="username" value="admin" autocomplete="username">
+          </label>
+          <label>
+            <span>管理员密码</span>
+            <input type="password" name="password" autocomplete="new-password">
+          </label>
+          <label>
+            <span>确认密码</span>
+            <input type="password" name="confirm_password" autocomplete="new-password">
+          </label>
+          <button class="button button-primary button-block" type="submit">
+            <i data-lucide="shield-check"></i><span>初始化管理员账号</span>
+          </button>
         </form>
         {% else %}
-        <form method="post" action="/login">
-          <label><span>管理员用户名</span><input type="text" name="username" value="admin"></label>
-          <label><span>管理员密码</span><input type="password" name="password"></label>
-          <button type="submit">登录控制台</button>
+        <form method="post" action="/login" class="stack-form">
+          <label>
+            <span>管理员用户名</span>
+            <input type="text" name="username" value="admin" autocomplete="username">
+          </label>
+          <label>
+            <span>管理员密码</span>
+            <input type="password" name="password" autocomplete="current-password">
+          </label>
+          <button class="button button-primary button-block" type="submit">
+            <i data-lucide="log-in"></i><span>登录控制台</span>
+          </button>
         </form>
         {% endif %}
 
-        <div class="foot">登录后可访问首页总览、发送控制台与系统设置</div>
-      </div>
+        <div class="login-foot">认证页面不会展示服务器凭据或登录态数据。</div>
+      </section>
     </main>
+
+    <script defer src="/static/lucide.min.js?v=20260710"></script>
+    <script defer src="/static/app.js?v=20260710"></script>
   </body>
 </html>

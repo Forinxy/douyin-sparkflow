@@ -35,6 +35,10 @@ def configure_playwright_environment():
 
 
 def _headless_for(GUI=False):
+    headful_env = str(os.getenv("SPARKFLOW_BROWSER_HEADFUL") or "").strip().lower()
+    if headful_env in {"1", "true", "yes", "on"}:
+        return False
+
     headless = not GUI
     if get_environment() == Environment.LOCAL and DEBUG:
         headless = False

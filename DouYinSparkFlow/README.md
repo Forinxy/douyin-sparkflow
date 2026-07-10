@@ -15,12 +15,13 @@
 | 文件 | 说明 | 大小 |
 |------|------|------|
 | `browser.py` | 浏览器控制和页面操作 | 3.4 KB |
-| `friends.py` | 好友列表管理和刷新逻辑 | 5.2 KB |
+| `friends.py` | 好友列表管理和刷新逻辑 | 8.8 KB |
 | `login.py` | 登录流程控制 | 2.8 KB |
 | `msg_builder.py` | 消息内容构建（一言、祝福等） | 4.5 KB |
-| `protocol_dispatch.py` | 协议分发和路由 | 9.7 KB |
-| `protocol_sender.mjs` | 消息发送协议（Node.js 脚本） | 21 KB |
-| `tasks.py` | **任务调度核心**（定时任务、状态管理） | 83 KB |
+| `protocol_dispatch.py` | 协议分发和路由 | 14.5 KB |
+| `protocol_sender.mjs` | 消息发送协议（Node.js 脚本） | 22.8 KB |
+| `send_state.py` | 统一判定强确认、待核验和当日发送状态 | 1.6 KB |
+| `tasks.py` | **任务调度核心**（定时任务、状态管理） | 109.5 KB |
 
 ### `webui/` - Web 管理界面
 
@@ -42,17 +43,16 @@ webui/
 ├── static/              # 静态资源
 │   ├── app.css         # 主题样式（亮色/暗色）
 │   ├── app.js          # 主题切换脚本
+│   ├── lucide.min.js      # 本地化图标库
+│   ├── lucide-LICENSE.txt # 图标库许可证
 │   ├── styles.css      # 基础样式
 │   └── multiPagePlugins/  # 浏览器扩展插件
 └── templates/          # HTML 模板
     ├── base.html       # 基础布局模板
     ├── dashboard.html  # 仪表盘（主界面）
     ├── login.html      # 登录页
-    ├── login_workspace.html  # 登录工作区
-    ├── accounts.html   # 账号管理
     ├── send_console.html  # 发送控制台
-    ├── logs.html       # 日志查看
-    └── settings.html   # 系统设置
+    └── logs.html       # 日志查看
 ```
 
 ### `utils/` - 工具模块
@@ -140,37 +140,42 @@ docker run -d \
 
 ### `config.json` - 应用配置
 
-主配置文件，控制任务行为和系统设置。
+主配置文件控制发送窗口、好友扫描、浏览器 Profile 和消息策略。仓库版本不包含真实账号标识：
 
 ```json
 {
-  "send_window_start": "09:00",
-  "send_window_end": "22:00",
-  "send_interval_min": 300,
-  "message_template": "hitokoto",
-  "enable_send_confirm": true,
-  "friend_refresh_interval": 3600,
-  "browser_headless": false,
-  "browser_timeout": 30000,
-  "max_retry_count": 3,
-  "cooldown_on_failure": 600
+  "messageTemplate": "✨今日火花+1\n",
+  "useProtocolSender": false,
+  "browserSenderAccounts": [],
+  "dailySendWindow": {
+    "enabled": true,
+    "startHour": 10,
+    "endHour": 18,
+    "scheduleIntervalMinutes": 10
+  },
+  "friendListScan": {
+    "maxScanSeconds": 300,
+    "idleScanSeconds": 120,
+    "scrollStepPx": 400,
+    "scrollDelaySeconds": 0.8
+  },
+  "persistentBrowserProfiles": {
+    "enabled": true,
+    "root": "/opt/douyin-sparkflow/state/browser-profiles",
+    "seedCookiesWhenEmpty": true,
+    "syncStoredCookiesBeforeRun": true,
+    "refreshStoredCookiesAfterLogin": true
+  }
 }
 ```
 
-**配置项说明**：
-
-| 配置项 | 类型 | 默认值 | 说明 |
-|--------|------|--------|------|
-| `send_window_start` | string | "09:00" | 发送窗口开始时间 |
-| `send_window_end` | string | "22:00" | 发送窗口结束时间 |
-| `send_interval_min` | int | 300 | 最小发送间隔（秒） |
-| `message_template` | string | "hitokoto" | 消息模板类型 |
-| `enable_send_confirm` | bool | true | 是否启用发送确认 |
-| `friend_refresh_interval` | int | 3600 | 好友列表刷新间隔（秒） |
-| `browser_headless` | bool | false | 浏览器无头模式 |
-| `browser_timeout` | int | 30000 | 浏览器操作超时（毫秒） |
-| `max_retry_count` | int | 3 | 失败重试次数 |
-| `cooldown_on_failure` | int | 600 | 失败后冷却时间（秒） |
+| 配置项 | 说明 |
+|--------|------|
+| `dailySendWindow` | 每日发送窗口和调度间隔 |
+| `sendStrategy` | 账号启动延迟、消息间隔及消息变体 |
+| `friendListScan` | 好友列表扫描时限、空闲等待和滚动参数 |
+| `persistentBrowserProfiles` | 持久化 Playwright Profile 及 Cookie 同步策略 |
+| `browserSenderAccounts` | 强制使用浏览器发送的账号列表；公开模板默认为空 |
 
 ### `usersData.json` - 用户数据
 

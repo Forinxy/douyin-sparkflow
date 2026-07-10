@@ -6,10 +6,7 @@
   "saveDebugArtifacts": false,
   "useProtocolSender": false,
   "protocolDryRun": false,
-  "browserSenderAccounts": [
-    "94262577168",
-    "抖音号：softwomen"
-  ],
+  "browserSenderAccounts": [],
   "sendStrategy": {
     "shuffleTargets": true,
     "accountStartDelaySecondsMin": 15,
@@ -38,5 +35,18 @@
   "happyNewYear": {
     "enabled": true,
     "messageTemplate": "\r\n"
+  },
+  "friendListScan": {
+    "maxScanSeconds": 300,
+    "idleScanSeconds": 120,
+    "scrollStepPx": 400,
+    "scrollDelaySeconds": 0.8
+  },
+  "persistentBrowserProfiles": {
+    "enabled": true,
+    "root": "/opt/douyin-sparkflow/state/browser-profiles",
+    "seedCookiesWhenEmpty": true,
+    "syncStoredCookiesBeforeRun": true,
+    "refreshStoredCookiesAfterLogin": true
   }
 }

@@ -111,4 +111,5 @@ services:
     volumes:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
+      - ./state/browser-profiles:/opt/douyin-sparkflow/state/browser-profiles
     restart: "no"

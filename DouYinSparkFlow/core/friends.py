@@ -20,6 +20,24 @@ FIRST_FRIEND_SELECTOR = (
 )
 FRIEND_NAME_SELECTOR = """xpath=.//span[contains(@class, "item-header-name-")]"""
 LOGIN_MASK_SELECTORS = [".login-mask", ".login-guide-container", ".login-img-code-wrapper"]
+NON_LOGIN_DIALOG_DISMISS_TEXTS = (
+    "我知道了",
+    "知道了",
+    "好的",
+    "确定",
+    "确认",
+    "稍后再说",
+    "关闭",
+)
+NON_LOGIN_DIALOG_CLOSE_SELECTORS = (
+    ".semi-modal-close",
+    'button[aria-label="Close"]',
+    'button[aria-label="关闭"]',
+    '[aria-label="Close"]',
+    '[aria-label="关闭"]',
+)
+FRIEND_LIST_EMPTY_ROUNDS = 6
+FRIEND_LIST_EMPTY_WAIT_SECONDS = 1.5
 
 
 def update_collection_progress(new_names_count, no_more_visible, scroll_moved, idle_rounds, stuck_rounds, idle_limit=5, stuck_limit=2):
@@ -41,13 +59,103 @@ async def _ensure_logged_in(page):
             continue
 
 
-async def collect_friend_names(page):
-    await page.wait_for_selector(FRIENDS_TAB_SELECTOR, timeout=30000)
-    await page.locator(FRIENDS_TAB_SELECTOR).click()
+async def _dismiss_non_login_dialogs(page):
+    for text in NON_LOGIN_DIALOG_DISMISS_TEXTS:
+        try:
+            locator = page.get_by_text(text, exact=False).first
+            if await locator.count() > 0 and await locator.is_visible():
+                await locator.click(timeout=3000)
+                await asyncio.sleep(1)
+                return True
+        except Exception:
+            continue
 
-    await page.wait_for_selector(FIRST_FRIEND_SELECTOR, timeout=30000)
-    await page.locator(FIRST_FRIEND_SELECTOR).click()
-    await asyncio.sleep(2)
+    for selector in NON_LOGIN_DIALOG_CLOSE_SELECTORS:
+        try:
+            locator = page.locator(selector).first
+            if await locator.count() > 0 and await locator.is_visible():
+                await locator.click(timeout=3000)
+                await asyncio.sleep(1)
+                return True
+        except Exception:
+            continue
+    return False
+
+
+async def _click_friends_tab(page):
+    await page.wait_for_selector("#sub-app", timeout=30000)
+    try:
+        await page.locator(FRIENDS_TAB_SELECTOR).click(timeout=10000)
+        return
+    except Exception:
+        pass
+
+    try:
+        await page.get_by_text("朋友私信", exact=True).click(timeout=10000)
+        return
+    except Exception as exc:
+        raise RuntimeError("未找到朋友私信标签") from exc
+
+
+async def _friend_list_dom_summary(page):
+    return await page.evaluate(
+        """() => {
+            const sub = document.querySelector('#sub-app');
+            if (!sub) {
+                return { hasSubApp: false, ulCount: 0, liCount: 0, listItemCount: 0, nameSpanCount: 0, text: '' };
+            }
+            return {
+                hasSubApp: true,
+                ulCount: sub.querySelectorAll('ul').length,
+                liCount: sub.querySelectorAll('li').length,
+                listItemCount: sub.querySelectorAll('[class*="list-item"]').length,
+                nameSpanCount: sub.querySelectorAll('[class*="item-header-name"]').length,
+                text: (sub.innerText || '').split(String.fromCharCode(10)).join(' ').slice(0, 500),
+            };
+        }"""
+    )
+
+
+async def _wait_for_first_friend_or_empty(page):
+    for _ in range(FRIEND_LIST_EMPTY_ROUNDS):
+        await _dismiss_non_login_dialogs(page)
+        first_friend = page.locator(FIRST_FRIEND_SELECTOR).first
+        try:
+            if await first_friend.count() > 0 and await first_friend.is_visible():
+                await first_friend.click()
+                await asyncio.sleep(2)
+                return True
+        except Exception:
+            pass
+
+        summary = await _friend_list_dom_summary(page)
+        has_any_list_content = any(
+            int(summary.get(key) or 0) > 0
+            for key in ("ulCount", "liCount", "listItemCount", "nameSpanCount")
+        )
+        if not has_any_list_content:
+            await asyncio.sleep(FRIEND_LIST_EMPTY_WAIT_SECONDS)
+            continue
+
+        # The current DOM has list content but not the historical first-friend XPath.
+        # Let the collector below try the more general TARGET_SELECTOR path.
+        return False
+    return False
+
+
+async def collect_friend_names(page):
+    await _click_friends_tab(page)
+    await asyncio.sleep(1)
+
+    has_first_friend = await _wait_for_first_friend_or_empty(page)
+    if not has_first_friend:
+        summary = await _friend_list_dom_summary(page)
+        has_any_list_content = any(
+            int(summary.get(key) or 0) > 0
+            for key in ("ulCount", "liCount", "listItemCount", "nameSpanCount")
+        )
+        if not has_any_list_content:
+            return []
 
     found_names = []
     seen_names = set()

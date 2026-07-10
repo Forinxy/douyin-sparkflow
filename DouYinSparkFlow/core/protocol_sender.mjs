@@ -18,12 +18,13 @@ const SDK_BUNDLES = [
   "https://lf-fe-creator.douyinstatic.com/obj/douyn-creator-scm-cdn/douyin-creator-mono-pc-data/static/js/async/7771.d27d1891.js",
   "https://lf-fe-creator.douyinstatic.com/obj/douyn-creator-scm-cdn/douyin-creator-mono-pc-data/static/js/async/6682.2a991dfb.js",
   "https://lf-fe-creator.douyinstatic.com/obj/douyn-creator-scm-cdn/douyin-creator-mono-pc-data/static/js/async/361.4fc40815.js",
-  "https://lf-fe-creator.douyinstatic.com/obj/douyn-creator-scm-cdn/douyin-creator-mono-pc-data/static/js/async/pages-chat.6f823210.js",
+  "https://lf-fe-creator.douyinstatic.com/obj/douyn-creator-scm-cdn/douyin-creator-mono-pc-data/static/js/async/pages-chat.c817de31.js",
 ];
 
 const CREATOR_CHAT_URL = "https://creator.douyin.com/creator-micro/data/following/chat";
 const USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141 Safari/537.36";
+  (process.env.SPARKFLOW_PROTOCOL_USER_AGENT ||
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36").trim();
 
 function noop() {}
 
@@ -70,6 +71,36 @@ function randomBetweenInclusive(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+const SEND_MESSAGE_STATUS_NAMES = {
+  0: "Succeeded",
+  1: "UserNotInConversation",
+  2: "CheckConversationNotPass",
+  3: "CheckMessageNotPass",
+  4: "CheckMessageNotPassButSelfVisible",
+  5: "UserHasBeenBlock",
+};
+
+function sendMessageStatusName(statusCode) {
+  if (statusCode === null || statusCode === undefined) {
+    return "";
+  }
+  return SEND_MESSAGE_STATUS_NAMES[Number(statusCode)] || "Unknown";
+}
+
+function publicSendResultSummary(sendResult) {
+  if (!sendResult || typeof sendResult !== "object") {
+    return {};
+  }
+  const summary = {};
+  for (const key of ["success", "statusCode", "statusMsg", "checkCode", "checkMsg", "errorCode", "errorMsg"]) {
+    if (sendResult[key] !== undefined) {
+      summary[key] = sendResult[key];
+    }
+  }
+  summary.rawKeys = Object.keys(sendResult).sort();
+  return summary;
+}
+
 async function readStdinJson() {
   const chunks = [];
   for await (const chunk of process.stdin) {
@@ -88,6 +119,10 @@ async function ensureBundles(cacheDir) {
     const filename = url.split("/").at(-1);
     const filePath = path.join(cacheDir, filename);
     if (fs.existsSync(filePath)) {
+      const response = await fetch(url, { method: "HEAD", headers: { "User-Agent": USER_AGENT } });
+      if (!response.ok) {
+        throw new Error(`Cached SDK bundle is stale or unreachable ${url}: ${response.status}`);
+      }
       continue;
     }
     const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
@@ -641,13 +676,16 @@ async function sendMessages({
     }
 
     const sendResult = await client.sendMessage({ message: messageObject });
+    const statusCode = sendResult?.statusCode ?? null;
     sent.push({
       target,
       dryRun: false,
       message,
       success: Boolean(sendResult?.success),
-      statusCode: sendResult?.statusCode ?? null,
+      statusCode,
+      statusName: sendMessageStatusName(statusCode),
       statusMsg: sendResult?.statusMsg ?? "",
+      sendResultSummary: publicSendResultSummary(sendResult),
       conversationId: mapping.conversationId,
       delayBeforeSendSeconds,
       sentAt: stableNow(),

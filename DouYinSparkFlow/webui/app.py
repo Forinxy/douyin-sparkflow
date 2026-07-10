@@ -1,6 +1,5 @@
 import json
 import logging
-import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import urllib.error
@@ -16,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 logger = logging.getLogger(__name__)
 
 from core.friends import fetch_account_friends
+from core.send_state import history_entry_is_strong_confirmed_today, parse_sent_at
 from core.tasks import run_browser_tasks, task_run_lock
 from utils.config import (
     get_app_settings,
@@ -41,6 +41,7 @@ from webui.auth import (
 )
 from webui.ops import (
     TASK_ALREADY_RUNNING,
+    get_overview_snapshot,
     get_ops_snapshot,
     read_log_tail,
     refresh_proxy,
@@ -113,24 +114,78 @@ def _schedule_timezone():
 
 
 def _parse_sent_at(raw_value):
-    if not raw_value:
-        return None
-    raw = str(raw_value).strip()
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=_schedule_timezone())
-    return parsed.astimezone(_schedule_timezone())
+    return parse_sent_at(raw_value, _schedule_timezone())
+
+
+def _history_entry_strong_confirmed_today(entry):
+    return history_entry_is_strong_confirmed_today(
+        entry,
+        datetime.now(_schedule_timezone()),
+    )
 
 
 def _target_sent_today(account, target_name):
     entry = dict(account.get("message_history") or {}).get(target_name) or {}
+    return _history_entry_strong_confirmed_today(entry)
+
+
+def _target_unconfirmed_today(account, target_name):
+    entry = dict(account.get("message_history") or {}).get(target_name) or {}
     sent_at = _parse_sent_at(entry.get("sentAt"))
-    return bool(sent_at and sent_at.date() == datetime.now(_schedule_timezone()).date())
+    if sent_at and sent_at.date() == datetime.now(_schedule_timezone()).date() and not _history_entry_strong_confirmed_today(entry):
+        return True
+    failure_entry = dict(account.get("failure_queue") or {}).get(target_name) or {}
+    last_attempt_at = _parse_sent_at(failure_entry.get("lastAttemptAt"))
+    return bool(
+        last_attempt_at
+        and last_attempt_at.date() == datetime.now(_schedule_timezone()).date()
+        and str(failure_entry.get("category") or "") == "send_unconfirmed"
+    )
+
+
+def mark_target_unconfirmed(account, target_name, *, reason="manual_reset_possible_false_positive", force=False):
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    history = dict(account.get("message_history") or {})
+    existing = dict(history.get(target_name) or {})
+    sent_at = _parse_sent_at(existing.get("sentAt"))
+    today = datetime.now(_schedule_timezone()).date()
+    if existing and sent_at and sent_at.date() != today and not force:
+        return False
+    if existing and _history_entry_strong_confirmed_today(existing) and not force:
+        return False
+
+    previous_status = existing.get("status") or ("legacy_sentAt_only" if existing else "missing_history")
+    message = str(existing.get("message") or "")
+    history[target_name] = {
+        **existing,
+        "message": message,
+        "sentAt": existing.get("sentAt") or now,
+        "status": "unconfirmed",
+        "confirmationLevel": existing.get("confirmationLevel") or "legacy",
+        "confirmationSource": existing.get("confirmationSource") or "manual_reset",
+        "confirmationDetail": existing.get("confirmationDetail") or "已手动标记为待核验/待补发。",
+        "needsVerification": True,
+        "resetAt": now,
+        "resetReason": reason,
+        "previousStatus": previous_status,
+    }
+    account["message_history"] = history
+
+    queue = dict(account.get("failure_queue") or {})
+    existing_failure = dict(queue.get(target_name) or {})
+    queue[target_name] = {
+        "category": "send_unconfirmed",
+        "reason": reason,
+        "message": message,
+        "firstAttemptAt": existing_failure.get("firstAttemptAt") or now,
+        "lastAttemptAt": now,
+        "attemptCount": int(existing_failure.get("attemptCount") or 0) + 1,
+        "lastRunMode": "manual_reset",
+        "confirmationLevel": history[target_name].get("confirmationLevel"),
+        "confirmationSource": history[target_name].get("confirmationSource"),
+    }
+    account["failure_queue"] = queue
+    return True
 
 
 def login_desktop_api_url():
@@ -201,6 +256,22 @@ def save_exported_login_result(login_result: dict, *, relogin_unique_id: str = "
     return account, "created"
 
 
+def public_app_settings():
+    settings = get_app_settings(force_reload=True)
+    allowed_keys = (
+        "compose_root",
+        "ui_host",
+        "ui_port",
+        "ops_log_file",
+        "proxy_refresh_script",
+        "login_desktop_api_url",
+        "login_desktop_public_url",
+        "login_desktop_public_scheme",
+        "login_desktop_public_port",
+    )
+    return {key: settings.get(key) for key in allowed_keys}
+
+
 def create_app():
     settings = get_app_settings()
     app = FastAPI(title="DouYin Spark Flow Admin")
@@ -213,28 +284,35 @@ def create_app():
     )
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     DEBUG_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    app.mount("/debug-artifacts", StaticFiles(directory=str(DEBUG_ARTIFACTS_DIR)), name="debug-artifacts")
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
-        tb = traceback.format_exception(type(exc), exc, exc.__traceback__)
-        tb_text = "".join(tb)
-        logger.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb_text)
-        return PlainTextResponse(f"Internal Server Error\n\n{tb_text}", status_code=500)
+        logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+        return PlainTextResponse(
+            "Internal Server Error",
+            status_code=500,
+            headers={"Cache-Control": "no-store"},
+        )
 
     def render_template(request, template_name, context=None, status_code=200):
-        base_context = context or {}
+        base_context = dict(context or {})
         base_context.update(
             {
                 "request": request,
                 "current_user": current_user(request),
                 "csrf_token": csrf_token(request) if current_user(request) else "",
                 "is_https": is_https_request(request),
-                "app_settings": get_app_settings(force_reload=True),
+                "app_settings": public_app_settings(),
                 "login_desktop_public_url": login_desktop_public_url(request),
             }
         )
-        return templates.TemplateResponse(request, template_name, base_context, status_code=status_code)
+        return templates.TemplateResponse(
+            request,
+            template_name,
+            base_context,
+            status_code=status_code,
+            headers={"Cache-Control": "no-store"},
+        )
 
     def redirect(path="/", status_code=303):
         return RedirectResponse(url=path, status_code=status_code)
@@ -249,6 +327,17 @@ def create_app():
 
     def pop_flash(request):
         return request.session.pop("flash", None)
+
+    @app.get("/debug-artifacts/{artifact_path:path}")
+    async def debug_artifact(request: Request, artifact_path: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+        root = DEBUG_ARTIFACTS_DIR.resolve()
+        candidate = (root / artifact_path).resolve()
+        if root not in candidate.parents or not candidate.is_file():
+            return PlainTextResponse("Not found", status_code=404)
+        return FileResponse(candidate, headers={"Cache-Control": "no-store"})
 
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request):
@@ -303,6 +392,19 @@ def create_app():
     async def logout_action(request: Request):
         clear_session(request)
         return redirect("/login")
+
+    @app.get("/api/ops/overview")
+    async def ops_overview(request: Request):
+        if not current_user(request):
+            return JSONResponse(
+                {"error": "Unauthorized"},
+                status_code=401,
+                headers={"Cache-Control": "no-store"},
+            )
+        return JSONResponse(
+            get_overview_snapshot(),
+            headers={"Cache-Control": "no-store"},
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def dashboard(request: Request):
@@ -476,7 +578,11 @@ def create_app():
 
         updated_account = find_account(get_userData(force_reload=True), unique_id) or {}
         if _target_sent_today(updated_account, target_name):
-            flash(request, f"Retried {account.get('username', 'Account')} / {target_name} successfully.", "success")
+            flash(request, f"已重试 {account.get('username', 'Account')} / {target_name}，并获得强证据确认。", "success")
+        elif _target_unconfirmed_today(updated_account, target_name):
+            failure_entry = dict(updated_account.get("failure_queue") or {}).get(target_name) or {}
+            reason = str(failure_entry.get("reason") or "Retry ran but did not get strong confirmation.")
+            flash(request, f"已执行 {account.get('username', 'Account')} / {target_name}，但未强确认，已进入待核验/待补发：{reason}", "warning")
         else:
             account_failure = dict(updated_account.get("account_failure") or {})
             affected_targets = list(account_failure.get("affectedTargets") or [])
@@ -486,6 +592,64 @@ def create_app():
             else:
                 reason = str(failure_entry.get("reason") or "Retry did not confirm a successful send.")
             flash(request, f"Retry did not succeed for {account.get('username', 'Account')} / {target_name}: {reason}", "error")
+        return redirect("/ops/send-console")
+
+    @app.post("/accounts/{unique_id}/mark-target-unconfirmed")
+    async def mark_account_target_unconfirmed(request: Request, unique_id: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        target_name = str(form.get("target", "")).strip()
+        if not target_name:
+            flash(request, "Target is required.", "error")
+            return redirect("/ops/send-console")
+
+        accounts = get_userData(force_reload=True)
+        account = find_account(accounts, unique_id)
+        if not account:
+            flash(request, "Account not found.", "error")
+            return redirect("/ops/send-console")
+
+        changed = mark_target_unconfirmed(account, target_name)
+        if changed:
+            save_userData(accounts)
+            flash(request, f"已将 {account.get('username', 'Account')} / {target_name} 标记为待核验/待补发。", "warning")
+        else:
+            flash(request, f"{target_name} 已是强确认记录或不是今日记录，未自动重置。", "info")
+        return redirect("/ops/send-console")
+
+    @app.post("/ops/reset-today-unconfirmed")
+    async def reset_today_unconfirmed(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return Response("Invalid CSRF token", status_code=403)
+
+        accounts = get_userData(force_reload=True)
+        changed_count = 0
+        for account in accounts:
+            for target_name in list(account.get("targets") or []):
+                entry = dict(account.get("message_history") or {}).get(target_name) or {}
+                sent_at = _parse_sent_at(entry.get("sentAt"))
+                if not sent_at or sent_at.date() != datetime.now(_schedule_timezone()).date():
+                    continue
+                if _history_entry_strong_confirmed_today(entry):
+                    continue
+                if mark_target_unconfirmed(account, target_name, reason="batch_reset_today_suspicious_success"):
+                    changed_count += 1
+        if changed_count:
+            save_userData(accounts)
+            flash(request, f"已将 {changed_count} 条今日可疑成功记录标记为待核验/待补发。", "warning")
+        else:
+            flash(request, "没有找到需要重置的今日可疑成功记录。", "info")
         return redirect("/ops/send-console")
 
     @app.post("/config")
@@ -565,15 +729,9 @@ def create_app():
             return Response("Invalid CSRF token", status_code=403)
 
         settings = get_app_settings(force_reload=True)
-        settings["server_host"] = str(form.get("server_host", "")).strip()
-        settings["server_username"] = str(form.get("server_username", "")).strip()
-        settings["server_password"] = str(form.get("server_password", "")).strip()
         settings["compose_root"] = str(form.get("compose_root", settings.get("compose_root", ""))).strip()
         settings["ops_log_file"] = str(form.get("ops_log_file", settings.get("ops_log_file", ""))).strip()
         settings["proxy_refresh_script"] = str(form.get("proxy_refresh_script", settings.get("proxy_refresh_script", ""))).strip()
-        settings["local_login_helper_url"] = str(
-            form.get("local_login_helper_url", settings.get("local_login_helper_url", "http://127.0.0.1:18765"))
-        ).strip()
         settings["login_desktop_api_url"] = str(
             form.get("login_desktop_api_url", settings.get("login_desktop_api_url", "http://127.0.0.1:18090"))
         ).strip()
@@ -601,14 +759,14 @@ def create_app():
         if not validate_csrf(request, str(form.get("csrf_token", ""))):
             return Response("Invalid CSRF token", status_code=403)
 
-        pid = run_task_now()
+        pid = run_task_now(force_all=True)
         if pid == TASK_ALREADY_RUNNING:
             flash(request, "已有发送任务正在运行，本次补发全部对象没有启动。请等当前任务结束后再试。", "warning")
         elif pid == -1:
             flash(request, "Failed to start the full resend run. Check server logs for details.", "error")
         else:
             flash(request, f"已启动补发全部对象后台任务（pid {pid}）。这只表示任务已启动，实际成功数请刷新发送控制台查看。", "info")
-        return redirect("/")
+        return redirect("/ops/send-console")
 
     @app.post("/ops/run-failed")
     async def run_failed_retry(request: Request):

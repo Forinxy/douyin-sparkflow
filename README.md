@@ -224,16 +224,36 @@ VNC_PORT=5901
 
 #### `config.json` - 应用配置
 
+仓库中的 `DouYinSparkFlow/config.json` 是不含账号数据的模板。常用配置示例：
+
 ```json
 {
-  "send_window_start": "09:00",  // 发送窗口开始时间
-  "send_window_end": "22:00",    // 发送窗口结束时间
-  "send_interval_min": 300,      // 最小发送间隔（秒）
-  "message_template": "hitokoto", // 消息模板类型
-  "enable_send_confirm": true,   // 启用发送确认
-  "friend_refresh_interval": 3600 // 好友列表刷新间隔（秒）
+  "messageTemplate": "✨今日火花+1\n",
+  "useProtocolSender": false,
+  "browserSenderAccounts": [],
+  "dailySendWindow": {
+    "enabled": true,
+    "startHour": 10,
+    "endHour": 18,
+    "scheduleIntervalMinutes": 10
+  },
+  "friendListScan": {
+    "maxScanSeconds": 300,
+    "idleScanSeconds": 120,
+    "scrollStepPx": 400,
+    "scrollDelaySeconds": 0.8
+  },
+  "persistentBrowserProfiles": {
+    "enabled": true,
+    "root": "/opt/douyin-sparkflow/state/browser-profiles",
+    "seedCookiesWhenEmpty": true,
+    "syncStoredCookiesBeforeRun": true,
+    "refreshStoredCookiesAfterLogin": true
+  }
 }
 ```
+
+`usersData.json`、`webui_settings.json`、浏览器 Profile、Cookie 和日志均为运行时敏感数据，不应提交到 Git。
 
 </details>
 
@@ -248,6 +268,8 @@ VNC_PORT=5901
 - **douyin-web**: Web 管理控制台服务
 - **login-desktop**: 登录桌面服务（包含浏览器环境）
 - **proxy**: Mihomo 代理服务（可选）
+- **scheduler**: 发送窗口定时调度服务
+- **task**: 一次性发送任务服务
 
 #### 快速部署
 

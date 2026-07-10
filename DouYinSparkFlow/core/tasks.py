@@ -1,5 +1,8 @@
-﻿import asyncio
+import asyncio
+import base64
+import errno
 import hashlib
+import json
 import logging
 import os
 import random
@@ -12,6 +15,7 @@ from zoneinfo import ZoneInfo
 from core.browser import get_browser, get_persistent_browser_context, sanitize_profile_name
 from core.msg_builder import build_message, build_message_candidates
 from core.protocol_dispatch import run_protocol_tasks
+from core.send_state import parse_sent_at, target_is_strong_confirmed_today
 from utils.config import get_config, get_userData, normalize_unique_id, save_userData
 from utils.logger import setup_logger
 
@@ -464,6 +468,239 @@ async def _detect_send_failure_indicator(page):
         return ""
 
 
+
+async def start_im_send_observer(page, account_name, target_name):
+    """Observe creator IM service calls for one browser send attempt."""
+    state = {
+        "enabled": False,
+        "send_request_seen": False,
+        "send_response_seen": False,
+        "send_receipt": {},
+        "mark_read_calls": [],
+        "identity_security_token_calls": [],
+        "events": [],
+        "error": "",
+    }
+    pending = {}
+    session = None
+
+    try:
+        session = await page.context.new_cdp_session(page)
+        await session.send("Network.enable")
+        state["enabled"] = True
+    except Exception as exc:
+        state["error"] = f"cdp_unavailable: {exc}"
+        logger.warning("IM observer unavailable for %s/%s: %s", account_name, target_name, exc)
+
+        async def disabled_summary(extra_wait_seconds=0):
+            if extra_wait_seconds:
+                await asyncio.sleep(extra_wait_seconds)
+            return dict(state)
+
+        return disabled_summary
+
+    def _trim(value, limit=220):
+        return str(value or "")[:limit]
+
+    def _call_kind(url):
+        value = str(url or "")
+        if "/v1/message/send" in value:
+            return "message_send"
+        if "mark_read" in value:
+            return "mark_read"
+        if "identity_security_token" in value:
+            return "identity_security_token"
+        if "imapi.douyin.com" in value:
+            return "imapi_other"
+        return ""
+
+    def _safe_url(url):
+        return str(url or "").split("?", 1)[0]
+
+    def _header_value(headers, name):
+        target = name.lower()
+        for key, value in (headers or {}).items():
+            if str(key).lower() == target:
+                return str(value)
+        return ""
+
+    def _decode_body(body):
+        raw = body.get("body") or ""
+        if body.get("base64Encoded"):
+            try:
+                return base64.b64decode(raw).decode("utf-8", errors="replace")
+            except Exception:
+                return ""
+        return raw
+
+    def _parse_json_body(text):
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+
+    def _extract_error_text(data, body_text):
+        if isinstance(data, dict):
+            for key in ("status_msg", "message", "msg", "err_msg", "error", "reason"):
+                value = data.get(key)
+                if value:
+                    return _trim(value, 300)
+            nested = data.get("data")
+            if isinstance(nested, dict):
+                for key in ("status_msg", "message", "msg", "err_msg", "error", "reason"):
+                    value = nested.get(key)
+                    if value:
+                        return _trim(value, 300)
+        return _trim(body_text, 300)
+
+    def _json_success(data):
+        if not isinstance(data, dict):
+            return None
+        success_values = []
+        for key in ("status_code", "err_no", "errno", "error_code", "code"):
+            if key in data:
+                success_values.append(data.get(key) in (0, "0", None))
+        message = str(data.get("message") or data.get("status_msg") or "").lower()
+        if message:
+            success_values.append(message in ("success", "ok"))
+        if success_values:
+            return all(success_values)
+        return None
+
+    def _receipt_body_meta(data, body_text):
+        meta = {"bodyLen": len(body_text or "")}
+        if body_text:
+            meta["bodySha256"] = hashlib.sha256(body_text.encode("utf-8", errors="replace")).hexdigest()
+        if isinstance(data, dict):
+            meta["jsonKeys"] = sorted(str(key) for key in data.keys())[:20]
+            nested = data.get("data")
+            if isinstance(nested, dict):
+                meta["dataKeys"] = sorted(str(key) for key in nested.keys())[:20]
+                for source_key, dest_key in (
+                    ("server_message_id", "serverMessageId"),
+                    ("message_id", "messageId"),
+                    ("msg_id", "messageId"),
+                    ("conversation_id", "conversationId"),
+                    ("conversation_short_id", "conversationShortId"),
+                ):
+                    value = nested.get(source_key)
+                    if value:
+                        meta[dest_key] = _trim(value, 120)
+            for source_key, dest_key in (
+                ("server_message_id", "serverMessageId"),
+                ("message_id", "messageId"),
+                ("msg_id", "messageId"),
+                ("conversation_id", "conversationId"),
+                ("conversation_short_id", "conversationShortId"),
+            ):
+                value = data.get(source_key)
+                if value:
+                    meta[dest_key] = _trim(value, 120)
+        return meta
+
+    def _record(event):
+        state["events"].append(event)
+        if len(state["events"]) > 50:
+            del state["events"][:-50]
+
+    def on_request(params):
+        request = params.get("request") or {}
+        url = request.get("url") or ""
+        kind = _call_kind(url)
+        if not kind:
+            return
+        request_id = params.get("requestId")
+        post_data = request.get("postData") or ""
+        method = request.get("method") or ""
+        is_send_post = kind == "message_send" and method.upper() == "POST"
+        pending[request_id] = {"url": url, "kind": kind, "request": request, "is_send_post": is_send_post}
+        _record({"kind": "request", "call": kind, "url": _safe_url(url), "method": method, "postLen": len(post_data)})
+        if is_send_post:
+            state["send_request_seen"] = True
+            logger.info("IM observer saw message send request for %s/%s url=%s postLen=%s", account_name, target_name, _trim(_safe_url(url), 160), len(post_data))
+
+    def on_response(params):
+        request_id = params.get("requestId")
+        item = pending.get(request_id)
+        if not item:
+            return
+        response = params.get("response") or {}
+        item["response"] = response
+        kind = item.get("kind")
+        headers = response.get("headers") or {}
+        status = response.get("status")
+        logid = _header_value(headers, "x-tt-logid") or _header_value(headers, "x-tt-trace-log") or _header_value(headers, "x-tt-trace-id")
+        event = {"kind": "response", "call": kind, "url": _safe_url(item.get("url")), "status": status}
+        if logid:
+            event["logid"] = _trim(logid, 120)
+        _record(event)
+        if item.get("is_send_post"):
+            state["send_response_seen"] = True
+            state["send_receipt"] = {"call": kind, "httpStatus": status, "ok": False, "pendingBody": True, "logid": _trim(logid, 120), "url": _safe_url(item.get("url"))}
+            logger.info("IM observer saw message send response for %s/%s status=%s logid=%s", account_name, target_name, status, _trim(logid, 80))
+
+    async def fetch_body(request_id):
+        item = pending.get(request_id) or {}
+        kind = item.get("kind") or ""
+        url = item.get("url") or ""
+        response = item.get("response") or {}
+        status = response.get("status")
+        headers = response.get("headers") or {}
+        logid = _header_value(headers, "x-tt-logid") or _header_value(headers, "x-tt-trace-log") or _header_value(headers, "x-tt-trace-id")
+        try:
+            body = await session.send("Network.getResponseBody", {"requestId": request_id})
+            body_text = _decode_body(body)
+            data = _parse_json_body(body_text)
+            http_ok = isinstance(status, (int, float)) and 200 <= status < 300
+            json_ok = _json_success(data)
+            receipt = {"call": kind, "httpStatus": status, "ok": bool(http_ok and (json_ok is not False)), "jsonParsed": isinstance(data, dict), "logid": _trim(logid, 120), "url": _safe_url(url)}
+            receipt.update(_receipt_body_meta(data, body_text))
+            if json_ok is not None:
+                receipt["jsonOk"] = bool(json_ok)
+            if not receipt["ok"]:
+                receipt["reason"] = _extract_error_text(data, body_text)
+            if item.get("is_send_post"):
+                state["send_receipt"] = receipt
+                _record({"kind": "body", "call": kind, "status": status, "ok": receipt["ok"], "jsonParsed": receipt["jsonParsed"], "logid": receipt.get("logid", ""), "reason": receipt.get("reason", "")})
+            elif kind == "mark_read":
+                state["mark_read_calls"].append(receipt)
+                _record({"kind": "body", "call": kind, "status": status, "ok": receipt["ok"]})
+            elif kind == "identity_security_token":
+                has_token = isinstance(data, dict) and bool((data.get("data") or {}).get("identity_security_token"))
+                receipt["hasToken"] = has_token
+                receipt.pop("reason", None)
+                state["identity_security_token_calls"].append(receipt)
+                _record({"kind": "body", "call": kind, "status": status, "ok": receipt["ok"], "hasToken": has_token})
+            else:
+                _record({"kind": "body", "call": kind, "status": status, "ok": receipt["ok"]})
+        except Exception as exc:
+            error = _trim(exc, 160)
+            _record({"kind": "body_error", "call": kind, "url": _safe_url(url), "error": error})
+            if item.get("is_send_post"):
+                state["send_receipt"] = {"call": kind, "httpStatus": status, "ok": False, "logid": _trim(logid, 120), "url": _safe_url(url), "reason": f"response_body_unavailable: {error}"}
+        finally:
+            pending.pop(request_id, None)
+
+    def on_loading_finished(params):
+        request_id = params.get("requestId")
+        if request_id in pending:
+            asyncio.create_task(fetch_body(request_id))
+
+    session.on("Network.requestWillBeSent", on_request)
+    session.on("Network.responseReceived", on_response)
+    session.on("Network.loadingFinished", on_loading_finished)
+
+    async def summary(extra_wait_seconds=3):
+        if extra_wait_seconds:
+            await asyncio.sleep(extra_wait_seconds)
+        try:
+            await session.detach()
+        except Exception:
+            pass
+        return dict(state)
+
+    return summary
+
 async def snapshot_last_own_message(page, chat_input=None):
     try:
         return await page.evaluate(
@@ -811,12 +1048,30 @@ def _build_normalized_target_map(targets):
     return normalized_targets
 
 
+async def _locator_count_with_timeout(locator, account_name, stage, label, timeout_seconds=3):
+    try:
+        return await asyncio.wait_for(locator.count(), timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Account %s locator count timed out at %s label=%s after %ss",
+            account_name,
+            stage,
+            label,
+            timeout_seconds,
+        )
+        return None
+
+
 async def _first_non_empty_locator(page, selectors):
     for selector in selectors:
         locator = page.locator(selector)
-        try:
-            count = await locator.count()
-        except Exception:
+        count = await _locator_count_with_timeout(
+            locator,
+            "unknown",
+            "first_non_empty_locator",
+            selector,
+        )
+        if count is None:
             continue
         for index in range(min(count, 5)):
             item = locator.nth(index)
@@ -832,7 +1087,13 @@ async def _selector_visible(page, selectors):
     for selector in selectors:
         locator = page.locator(selector).first
         try:
-            if await locator.count() > 0 and await locator.is_visible(timeout=500):
+            count = await _locator_count_with_timeout(
+                locator,
+                "unknown",
+                "selector_visible",
+                selector,
+            )
+            if count and await locator.is_visible(timeout=500):
                 return selector
         except Exception:
             continue
@@ -843,7 +1104,13 @@ async def _click_first_visible_locator(candidates, account_name, stage):
     last_error = None
     for label, locator in candidates:
         try:
-            count = min(await locator.count(), 5)
+            count = await _locator_count_with_timeout(
+                locator,
+                account_name,
+                stage,
+                label,
+            )
+            count = min(count or 0, 5)
         except Exception as exc:
             last_error = exc
             continue
@@ -878,17 +1145,26 @@ async def _open_friends_tab(page, account_name, fallback_selector, target_select
         '[contains(normalize-space(.), "朋友") or contains(normalize-space(.), "好友") '
         'or contains(normalize-space(.), "互关")]'
     )
+    page_text_selector = (
+        'xpath=//*[self::div or self::button or self::span or @role="tab" or @role="button"]'
+        '[contains(normalize-space(.), "朋友私信") or contains(normalize-space(.), "好友私信") '
+        'or contains(normalize-space(.), "朋友") or contains(normalize-space(.), "好友") '
+        'or contains(normalize-space(.), "互关")]'
+    )
     candidates = [
+        ("page tab text 朋友私信", page.get_by_text("朋友私信", exact=True)),
+        ("page tab text 好友私信", page.get_by_text("好友私信", exact=True)),
         ("tab text 朋友", sub_app.get_by_text("朋友", exact=True)),
         ("tab text 好友", sub_app.get_by_text("好友", exact=True)),
         ("tab text 互关", sub_app.get_by_text("互关", exact=True)),
         ("tab text 朋友私信", sub_app.get_by_text("朋友私信", exact=True)),
         ("tab text 好友私信", sub_app.get_by_text("好友私信", exact=True)),
         ("sub-app friend tab text", page.locator(text_selector)),
+        ("page friend tab text", page.locator(page_text_selector)),
         ("fallback friends tab xpath", page.locator(fallback_selector)),
     ]
     if await _click_first_visible_locator(candidates, account_name, "open_friends_tab"):
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         return "clicked"
 
     await page.wait_for_selector(fallback_selector, timeout=30000)
@@ -1336,18 +1612,7 @@ def _account_identity(user):
 
 
 def _parse_sent_at(raw_value, local_tz):
-    if not raw_value:
-        return None
-    raw = str(raw_value).strip()
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=local_tz)
-    return parsed.astimezone(local_tz)
+    return parse_sent_at(raw_value, local_tz)
 
 
 def _manual_run_failed_only():
@@ -1368,10 +1633,18 @@ def _unsent_retry_max_attempts():
 
 
 def _target_sent_today(user, target_name, now):
+    return target_is_strong_confirmed_today(user, target_name, now)
+
+
+def _target_unconfirmed_today(user, target_name, now):
     history = dict(user.get("message_history") or {})
-    entry = history.get(target_name) or {}
+    entry = dict(history.get(target_name) or {})
     sent_at = _parse_sent_at(entry.get("sentAt"), now.tzinfo)
-    return bool(sent_at and sent_at.date() == now.date())
+    return bool(
+        sent_at
+        and sent_at.date() == now.date()
+        and not _target_sent_today(user, target_name, now)
+    )
 
 
 def _target_failed_today(user, target_name, now):
@@ -1462,6 +1735,25 @@ def _target_failure_attempts_today(user, target_name, now):
         return 0
 
 
+def _target_failure_category_today(user, target_name, now):
+    queue = dict(user.get("failure_queue") or {})
+    entry = queue.get(target_name) or {}
+    last_attempt_at = _parse_sent_at(entry.get("lastAttemptAt"), now.tzinfo)
+    if not last_attempt_at or last_attempt_at.date() != now.date():
+        return ""
+    return str(entry.get("category") or "").strip()
+
+
+def _target_has_non_retryable_failure_today(user, target_name, now):
+    return _target_failure_category_today(user, target_name, now) in {
+        "protocol_check_message_not_pass",
+        "protocol_check_message_self_visible",
+        "protocol_user_blocked",
+        "protocol_user_not_in_conversation",
+        "protocol_check_conversation_not_pass",
+    }
+
+
 def _pending_failed_targets(user, now):
     queue = dict(user.get("failure_queue") or {})
     targets = []
@@ -1477,6 +1769,9 @@ def _pending_failed_targets(user, now):
     for target_name in user.get("targets") or []:
         if _target_sent_today(user, target_name, now):
             continue
+        if _target_unconfirmed_today(user, target_name, now):
+            targets.append(target_name)
+            continue
         if target_name in queue and _target_failed_today(user, target_name, now):
             targets.append(target_name)
     return targets
@@ -1488,6 +1783,9 @@ def _pending_unsent_targets(user, now):
     max_attempts = _unsent_retry_max_attempts()
     for target_name in user.get("targets") or []:
         if _target_sent_today(user, target_name, now):
+            continue
+        if _target_has_non_retryable_failure_today(user, target_name, now):
+            skipped_targets.append(f"{target_name}(non_retryable)")
             continue
         attempts_today = _target_failure_attempts_today(user, target_name, now)
         if attempts_today >= max_attempts:
@@ -1583,10 +1881,10 @@ def _prepare_active_users_for_run(active_config, active_user_data):
             retry_targets = _pending_failed_targets(user, now)
             already_sent = [target for target in user.get("targets") or [] if _target_sent_today(user, target, now)]
             logger.info(
-                "manual-retry user=%s retryTargets=%s alreadySentToday=%s",
+                "manual-retry user=%s retryTargetCount=%s strongConfirmedToday=%s",
                 user.get("username", "unknown"),
-                retry_targets,
-                already_sent,
+                len(retry_targets),
+                len(already_sent),
             )
             if retry_targets:
                 runnable_user = dict(user)
@@ -1605,11 +1903,11 @@ def _prepare_active_users_for_run(active_config, active_user_data):
             retry_targets, skipped_targets = _pending_unsent_targets(user, now)
             already_sent = [target for target in user.get("targets") or [] if _target_sent_today(user, target, now)]
             logger.info(
-                "manual-unsent user=%s retryTargets=%s alreadySentToday=%s skippedMaxAttempts=%s",
+                "manual-unsent user=%s retryTargetCount=%s strongConfirmedToday=%s skippedCount=%s",
                 user.get("username", "unknown"),
-                retry_targets,
-                already_sent,
-                skipped_targets,
+                len(retry_targets),
+                len(already_sent),
+                len(skipped_targets),
             )
             if retry_targets:
                 runnable_user = dict(user)
@@ -1639,17 +1937,13 @@ def _prepare_active_users_for_run(active_config, active_user_data):
     runnable_users = []
     for user in active_user_data:
         due_targets, already_sent, pending_targets, queued_failures = _select_due_targets(user, send_window, now)
-        pending_preview = [
-            f"{target_name}@{scheduled_at.strftime('%H:%M')}"
-            for target_name, scheduled_at in pending_targets[:5]
-        ]
         logger.info(
-            "windowed user=%s dueTargets=%s alreadySentToday=%s pendingTargets=%s queuedFailures=%s",
+            "windowed user=%s due=%s strongConfirmed=%s pending=%s queuedFailures=%s",
             user.get("username", "unknown"),
-            due_targets,
-            already_sent,
-            pending_preview,
-            queued_failures,
+            len(due_targets),
+            len(already_sent),
+            len(pending_targets),
+            len(queued_failures),
         )
         if due_targets:
             runnable_user = dict(user)
@@ -1806,7 +2100,7 @@ def _persist_friend_index(user, friend_records, scanned_at, *, scan_complete, mi
     )
 
 
-def _persist_browser_send_failure(user, target_name, message, category, reason, attempted_at):
+def _persist_browser_send_failure(user, target_name, message, category, reason, attempted_at, server_receipt=None):
     accounts = get_userData(force_reload=True)
     matched_account = _find_matching_account(accounts, user)
     if matched_account is None:
@@ -1828,6 +2122,8 @@ def _persist_browser_send_failure(user, target_name, message, category, reason, 
         "attemptCount": _coerce_attempt_count(existing_entry) + 1,
         "lastRunMode": _current_run_mode(),
     }
+    if server_receipt:
+        queue[target_name]["serverReceipt"] = server_receipt
     matched_account["failure_queue"] = queue
     save_userData(accounts)
 
@@ -1844,7 +2140,7 @@ def _persist_browser_send_failure(user, target_name, message, category, reason, 
     )
 
 
-def _persist_browser_send_success(user, target_name, message, sent_at):
+def _persist_browser_send_success(user, target_name, message, sent_at, server_receipt=None):
     accounts = get_userData(force_reload=True)
     matched_account = _find_matching_account(accounts, user)
     if matched_account is None:
@@ -1855,11 +2151,25 @@ def _persist_browser_send_success(user, target_name, message, sent_at):
         )
         return
 
-    history = dict(matched_account.get("message_history") or {})
-    history[target_name] = {
+    receipt_summary = ""
+    if isinstance(server_receipt, dict):
+        receipt_summary = "message_send http={} logid={}".format(
+            server_receipt.get("httpStatus"),
+            server_receipt.get("logid") or "",
+        )
+    strong_entry = {
         "message": message,
         "sentAt": sent_at,
+        "status": "confirmed",
+        "confirmationLevel": "strong",
+        "confirmationSource": "cdp_message_send_receipt" if server_receipt else "browser_visible_count_increased",
+        "confirmationDetail": receipt_summary,
+        "needsVerification": False,
     }
+    if server_receipt:
+        strong_entry["serverReceipt"] = server_receipt
+    history = dict(matched_account.get("message_history") or {})
+    history[target_name] = strong_entry
     matched_account["message_history"] = history
     queue = dict(matched_account.get("failure_queue") or {})
     queue.pop(target_name, None)
@@ -1871,10 +2181,7 @@ def _persist_browser_send_success(user, target_name, message, sent_at):
     save_userData(accounts)
 
     user_history = dict(user.get("message_history") or {})
-    user_history[target_name] = {
-        "message": message,
-        "sentAt": sent_at,
-    }
+    user_history[target_name] = dict(strong_entry)
     user["message_history"] = user_history
     user_queue = dict(user.get("failure_queue") or {})
     user_queue.pop(target_name, None)
@@ -1921,6 +2228,12 @@ def _pid_is_alive(pid):
         return False
     except PermissionError:
         return True
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 87 or exc.errno == errno.ESRCH:
+            return False
+        if exc.errno in (errno.EPERM, errno.EACCES):
+            return True
+        raise
     return True
 
 
@@ -2009,6 +2322,22 @@ def _release_browser_account_lock(handle, lock_path, account_name):
             pass
 
 
+def _browser_account_timeout_seconds(friend_scan_config, target_count):
+    raw_value = str(os.getenv("SPARKFLOW_BROWSER_ACCOUNT_TIMEOUT_SECONDS") or "").strip()
+    if raw_value:
+        try:
+            return max(300, int(raw_value))
+        except ValueError:
+            logger.warning(
+                "Invalid SPARKFLOW_BROWSER_ACCOUNT_TIMEOUT_SECONDS=%r, using calculated timeout",
+                raw_value,
+            )
+
+    scan_seconds = int((friend_scan_config or {}).get("maxScanSeconds") or 300)
+    # Bound one account run even if Playwright or the page wedges below our selector timeouts.
+    return max(900, scan_seconds + 420 + max(1, target_count) * 240)
+
+
 async def run_browser_tasks(active_config, browser_user_data):
     if not browser_user_data:
         return
@@ -2028,7 +2357,11 @@ async def run_browser_tasks(active_config, browser_user_data):
             profile_config["refreshStoredCookiesAfterLogin"],
         )
         for user in browser_user_data:
-            logger.info("Using persistent browser sender for user=%s targets=%s", user.get("username", "unknown"), user["targets"])
+            logger.info(
+                "Using persistent browser sender for user=%s targetCount=%s",
+                user.get("username", "unknown"),
+                len(user["targets"]),
+            )
             tasks.append(do_user_task(None, user, semaphore, send_strategy, profile_config, friend_scan_config))
         await asyncio.gather(*tasks)
         return
@@ -2036,7 +2369,11 @@ async def run_browser_tasks(active_config, browser_user_data):
     playwright, browser = await get_browser()
     try:
         for user in browser_user_data:
-            logger.info("Using browser sender for user=%s targets=%s", user.get("username", "unknown"), user["targets"])
+            logger.info(
+                "Using browser sender for user=%s targetCount=%s",
+                user.get("username", "unknown"),
+                len(user["targets"]),
+            )
             tasks.append(do_user_task(browser, user, semaphore, send_strategy, profile_config, friend_scan_config))
 
         await asyncio.gather(*tasks)
@@ -2052,14 +2389,40 @@ async def do_user_task(browser, user, semaphore, send_strategy, profile_config, 
         account_lock_path = None
         try:
             account_lock_handle, account_lock_path = await _acquire_browser_account_lock(user, account_name)
-            await _do_user_task_locked(
-                browser,
-                user,
-                send_strategy,
-                profile_config,
+            timeout_seconds = _browser_account_timeout_seconds(
                 friend_scan_config,
-                account_name,
+                len(user.get("targets") or []),
             )
+            logger.info(
+                "Account %s browser sender timeout guard is %ss",
+                account_name,
+                timeout_seconds,
+            )
+            try:
+                await asyncio.wait_for(
+                    _do_user_task_locked(
+                        browser,
+                        user,
+                        send_strategy,
+                        profile_config,
+                        friend_scan_config,
+                        account_name,
+                    ),
+                    timeout=timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                attempted_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                reason = f"browser sender exceeded {timeout_seconds}s timeout guard"
+                logger.exception("Account %s browser sender timed out", account_name)
+                for target_name in user.get("targets") or []:
+                    _persist_browser_send_failure(
+                        user,
+                        target_name,
+                        "",
+                        "timeout",
+                        reason,
+                        attempted_at,
+                    )
         finally:
             if account_lock_handle is not None:
                 _release_browser_account_lock(account_lock_handle, account_lock_path, account_name)
@@ -2133,13 +2496,14 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
         logger.info("Account %s started the message flow", account_name)
         try:
             index_targets = targets
+            last_message = ""
             schedule_now = datetime.now(_schedule_timezone())
             if not _friend_index_complete_today(user, schedule_now):
                 index_targets = list(user.get("targets") or targets)
                 logger.info(
-                    "Account %s will refresh today's friend index while delivering targets=%s",
+                    "Account %s will refresh today's friend index while delivering targetCount=%s",
                     account_name,
-                    targets,
+                    len(targets),
                 )
             async for target_name in scroll_and_select_user(
                 page,
@@ -2153,22 +2517,32 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                 message = ""
                 chat_input = None
                 last_own_message_before = None
+                send_receipt = {}
                 try:
                     await save_debug_artifacts(page, account_name, target_name, "selected-friend")
                     chat_input, selector_used = await locate_chat_input(page)
                     logger.info("Using chat input selector %s for %s/%s", selector_used, account_name, target_name)
 
-                    message = build_message()
-                    logger.info("Prepared message for %s/%s: %r", account_name, target_name, message)
+                    previous_entry = dict(user.get("message_history") or {}).get(target_name) or {}
+                    previous_message = str(previous_entry.get("message") or "")
+                    message = build_message(previous_message=previous_message, last_message=last_message)
+                    last_message = message
+                    logger.info(
+                        "Prepared message for %s/%s length=%s previousMatch=%s",
+                        account_name,
+                        target_name,
+                        len(message),
+                        bool(previous_message and previous_message == message),
+                    )
                     last_own_message_before = await snapshot_last_own_message(
                         page,
                         chat_input=chat_input,
                     )
                     logger.info(
-                        "Last own message before send for %s/%s: %r",
+                        "Last own message before send for %s/%s length=%s",
                         account_name,
                         target_name,
-                        (last_own_message_before or {}).get("text", ""),
+                        len((last_own_message_before or {}).get("text", "")),
                     )
 
                     lines = message.split("\n")
@@ -2179,6 +2553,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
 
                     await save_debug_artifacts(page, account_name, target_name, "typed-message")
 
+                    im_observer_summary = await start_im_send_observer(page, account_name, target_name)
                     logger.info("Pressing Enter to send message for %s/%s", account_name, target_name)
                     await chat_input.press("Enter")
 
@@ -2188,17 +2563,42 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                         message,
                         before_snapshot=last_own_message_before,
                     )
+                    im_summary = await im_observer_summary()
+                    logger.info(
+                        "IM send observer summary for %s/%s: request=%s response=%s events=%s error=%s",
+                        account_name,
+                        target_name,
+                        im_summary.get("send_request_seen"),
+                        im_summary.get("send_response_seen"),
+                        im_summary.get("events"),
+                        im_summary.get("error", ""),
+                    )
+                    send_receipt = im_summary.get("send_receipt") or {}
+                    server_ok = bool(send_receipt.get("ok"))
+                    detail = (
+                        f"{detail}; im_observer request={im_summary.get('send_request_seen')} "
+                        f"response={im_summary.get('send_response_seen')} serverOk={server_ok} "
+                        f"logid={send_receipt.get('logid', '')} reason={send_receipt.get('reason', '')}"
+                    )
                     await save_debug_artifacts(page, account_name, target_name, "after-send")
 
-                    if not sent_ok:
+                    if im_summary.get("enabled"):
+                        if not im_summary.get("send_request_seen"):
+                            raise RuntimeError(f"server send request was not observed; {detail}")
+                        if not im_summary.get("send_response_seen"):
+                            raise RuntimeError(f"server send response was not observed; {detail}")
+                        if not server_ok:
+                            raise RuntimeError(f"server send receipt rejected; {detail}")
+                    elif not sent_ok:
                         raise RuntimeError(detail)
 
-                    logger.info("Message send confirmed for %s/%s: %s", account_name, target_name, detail)
+                    logger.info("Message send confirmed for %s/%s by server receipt: %s", account_name, target_name, detail)
                     _persist_browser_send_success(
                         user,
                         target_name,
                         message,
                         datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        server_receipt=send_receipt,
                     )
                     interval = _random_delay_seconds(
                         send_strategy,
@@ -2216,7 +2616,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                             message,
                             before_snapshot=last_own_message_before,
                         )
-                    if sent_ok:
+                    if sent_ok and not str(exc).startswith("server send"):
                         logger.warning(
                             "Recovered send outcome for %s/%s after failure: %s",
                             account_name,
@@ -2228,6 +2628,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                             target_name,
                             message,
                             datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                            server_receipt=send_receipt,
                         )
                         continue
 
@@ -2265,6 +2666,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
                         category,
                         reason,
                         datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        server_receipt=send_receipt,
                     )
                     interval = _random_delay_seconds(
                         send_strategy,
@@ -2320,12 +2722,17 @@ async def runTasks():
 
     logger.info("Starting tasks with config")
     logger.info("multiTask=%s taskCount=%s", active_config["multiTask"], active_config["taskCount"])
-    logger.info("messageTemplate=%s", active_config["messageTemplate"])
-    logger.info("sendStrategy=%s", active_config.get("sendStrategy", {}))
-    logger.info("hitokotoTypes=%s", active_config["hitokotoTypes"])
+    send_strategy = active_config.get("sendStrategy", {}) or {}
+    logger.info(
+        "messageConfig templateConfigured=%s variantCount=%s shuffleTargets=%s",
+        bool(str(active_config.get("messageTemplate") or "").strip()),
+        len(send_strategy.get("messageVariants") or []),
+        bool(send_strategy.get("shuffleTargets", True)),
+    )
+    logger.info("hitokotoTypeCount=%s", len(active_config.get("hitokotoTypes") or []))
     logger.info("enabledUsers=%s disabledUsers=%s", len(active_user_data), len(disabled_user_data))
     for user in active_user_data:
-        logger.info("user=%s targets=%s", user.get("username", "unknown"), user["targets"])
+        logger.info("user=%s targetCount=%s", user.get("username", "unknown"), len(user["targets"]))
     for user in disabled_user_data:
         logger.info("skipping disabled user=%s", user.get("username", "unknown"))
 
@@ -2350,13 +2757,7 @@ def task_run_lock():
     lock_path.parent.mkdir(parents=True, exist_ok=True)
 
     def _lock_owner_is_alive(pid):
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True
-        return True
+        return _pid_is_alive(pid)
 
     while True:
         try:

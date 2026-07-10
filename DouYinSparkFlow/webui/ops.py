@@ -1,3 +1,4 @@
+import errno
 import json
 import hashlib
 import logging
@@ -11,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from core.send_state import history_entry_is_strong_confirmed_today, parse_sent_at
 from utils.config import get_app_settings, get_config, get_userData, normalize_unique_id, repo_root, save_config
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,26 @@ TASK_SCHEDULE_MARKERS = (
 )
 HOST_CRONTAB_PATH = Path("/host-spool-cron/root")
 WINDOWED_SCHEDULE_RE = re.compile(r"^(\d{2}):(\d{2})-(\d{2}):(\d{2})/(\d+)m$", re.IGNORECASE)
+
+CONFIRMATION_LABELS = {
+    "cdp_message_send_receipt": "服务端回执",
+    "browser_visible_count_increased": "页面回显",
+    "legacy_sentAt_only": "旧记录待核验",
+    "manual_reset": "人工标记待核验",
+}
+
+FAILURE_CATEGORY_LABELS = {
+    "send_unconfirmed": "待核验",
+    "login_required": "登录失效",
+    "friend_not_found": "未找到好友",
+    "friend_list_unavailable": "好友列表不可用",
+    "timeout": "执行超时",
+    "navigation": "页面访问失败",
+    "selector": "页面结构变化",
+    "browser_crash": "浏览器异常",
+    "protocol_user_blocked": "对方限制私信",
+    "protocol_user_not_in_conversation": "不在会话中",
+}
 
 
 def running_in_container():
@@ -71,6 +93,12 @@ def _pid_is_alive(pid):
         return False
     except PermissionError:
         return True
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 87 or exc.errno == errno.ESRCH:
+            return False
+        if exc.errno in (errno.EPERM, errno.EACCES):
+            return True
+        raise
     return True
 
 
@@ -84,32 +112,62 @@ def _parse_lock_pid(raw):
 def task_run_lock_status():
     lock_path = repo_root() / "logs" / "task.run.lock"
     if not lock_path.exists():
-        return {"running": False, "path": str(lock_path), "pid": None, "ageSeconds": 0, "staleRemoved": False}
+        return {
+            "running": False,
+            "path": str(lock_path),
+            "pid": None,
+            "ageSeconds": 0,
+            "stale": False,
+            "staleReason": "",
+            "staleRemoved": False,
+        }
 
     raw = lock_path.read_text(encoding="utf-8", errors="ignore")
     pid = _parse_lock_pid(raw)
     try:
         age_seconds = max(0, int(datetime.now(timezone.utc).timestamp() - lock_path.stat().st_mtime))
     except OSError:
-        return {"running": False, "path": str(lock_path), "pid": pid, "ageSeconds": 0, "staleRemoved": False}
+        return {
+            "running": False,
+            "path": str(lock_path),
+            "pid": pid,
+            "ageSeconds": 0,
+            "stale": True,
+            "staleReason": "lock_stat_failed",
+            "staleRemoved": False,
+        }
 
     if pid is not None and not _pid_is_alive(pid):
-        try:
-            lock_path.unlink()
-            logger.warning("Removed stale task run lock owned by missing pid=%s", pid)
-            return {"running": False, "path": str(lock_path), "pid": pid, "ageSeconds": age_seconds, "staleRemoved": True}
-        except FileNotFoundError:
-            return {"running": False, "path": str(lock_path), "pid": pid, "ageSeconds": age_seconds, "staleRemoved": True}
+        return {
+            "running": False,
+            "path": str(lock_path),
+            "pid": pid,
+            "ageSeconds": age_seconds,
+            "stale": True,
+            "staleReason": "owner_pid_missing",
+            "staleRemoved": False,
+        }
 
     if pid is None and age_seconds > 7200:
-        try:
-            lock_path.unlink()
-            logger.warning("Removed stale unreadable task run lock contents=%r", raw[:80])
-            return {"running": False, "path": str(lock_path), "pid": None, "ageSeconds": age_seconds, "staleRemoved": True}
-        except FileNotFoundError:
-            return {"running": False, "path": str(lock_path), "pid": None, "ageSeconds": age_seconds, "staleRemoved": True}
+        return {
+            "running": False,
+            "path": str(lock_path),
+            "pid": None,
+            "ageSeconds": age_seconds,
+            "stale": True,
+            "staleReason": "unreadable_lock",
+            "staleRemoved": False,
+        }
 
-    return {"running": True, "path": str(lock_path), "pid": pid, "ageSeconds": age_seconds, "staleRemoved": False}
+    return {
+        "running": True,
+        "path": str(lock_path),
+        "pid": pid,
+        "ageSeconds": age_seconds,
+        "stale": False,
+        "staleReason": "",
+        "staleRemoved": False,
+    }
 
 
 def build_task_run_spec():
@@ -219,18 +277,30 @@ def _empty_result(stdout="", stderr=""):
 def run_background_command(args, log_path, cwd=None, env=None):
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = log_path.open("ab")
+    cwd_path = Path(cwd) if cwd else compose_root()
     child_env = os.environ.copy()
     if env:
         child_env.update(env)
-    process = subprocess.Popen(
-        args,
-        cwd=str(Path(cwd) if cwd else compose_root()),
-        stdout=handle,
-        stderr=subprocess.STDOUT,
-        env=child_env,
-    )
-    handle.close()
+
+    with log_path.open("ab") as handle:
+        started_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        env_keys = ",".join(sorted((env or {}).keys())) or "none"
+        handle.write(
+            (
+                f"[WEB_TRIGGER] {started_at} start cwd={cwd_path} "
+                f"env_keys={env_keys} command={shlex.join([str(part) for part in args])}\n"
+            ).encode("utf-8", errors="replace")
+        )
+        handle.flush()
+        process = subprocess.Popen(
+            args,
+            cwd=str(cwd_path),
+            stdout=handle,
+            stderr=subprocess.STDOUT,
+            env=child_env,
+        )
+        handle.write(f"[WEB_TRIGGER] {started_at} pid={process.pid}\n".encode("utf-8", errors="replace"))
+        handle.flush()
     return process.pid
 
 
@@ -289,7 +359,7 @@ def get_task_container_rows():
         return []
 
 
-def run_task_now(*, unsent_only=False, failed_only=False):
+def run_task_now(*, unsent_only=False, failed_only=False, force_all=False):
     try:
         lock_status = task_run_lock_status()
         if lock_status.get("running"):
@@ -306,10 +376,19 @@ def run_task_now(*, unsent_only=False, failed_only=False):
             "SPARKFLOW_MANUAL_RUN": "1",
             "PYTHONUNBUFFERED": "1",
         }
-        if failed_only:
+        if force_all:
+            run_env["SPARKFLOW_MANUAL_FORCE_ALL"] = "1"
+        elif failed_only:
             run_env["SPARKFLOW_MANUAL_FAILED_ONLY"] = "1"
         elif unsent_only:
             run_env["SPARKFLOW_MANUAL_UNSENT_ONLY"] = "1"
+        logger.info(
+            "Starting background task command=%s cwd=%s env=%s log=%s",
+            command,
+            cwd,
+            {key: run_env[key] for key in sorted(run_env)},
+            log_file,
+        )
         return run_background_command(
             command,
             log_file,
@@ -508,6 +587,49 @@ def current_daily_schedule():
     return ""
 
 
+def _next_window_trigger(now, window):
+    interval = max(1, int(window["scheduleIntervalMinutes"]))
+    candidates = []
+    for hour in range(int(window["startHour"]), int(window["endHour"])):
+        for minute in range(0, 60, interval):
+            candidates.append(now.replace(hour=hour, minute=minute, second=0, microsecond=0))
+    end_hour = int(window["endHour"])
+    candidates.append(now.replace(hour=end_hour, minute=0, second=0, microsecond=0))
+    if interval < 60:
+        candidates.append(now.replace(hour=end_hour, minute=interval, second=0, microsecond=0))
+    for candidate in sorted(set(candidates)):
+        if candidate > now:
+            return candidate
+    tomorrow = now + timedelta(days=1)
+    return tomorrow.replace(
+        hour=int(window["startHour"]),
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+def get_schedule_snapshot(now=None):
+    now = now or datetime.now(_schedule_timezone())
+    window = _normalize_send_window()
+    label = current_daily_schedule()
+    if window.get("enabled"):
+        next_trigger = _next_window_trigger(now, window)
+    else:
+        try:
+            hour, minute = [int(part) for part in label.split(":", 1)]
+            next_trigger = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if next_trigger <= now:
+                next_trigger += timedelta(days=1)
+        except (TypeError, ValueError):
+            next_trigger = None
+    return {
+        "label": label,
+        "nextTriggerAt": next_trigger.isoformat(timespec="seconds") if next_trigger else "",
+        "nextTriggerDisplay": next_trigger.strftime("%m-%d %H:%M") if next_trigger else "",
+    }
+
+
 def _schedule_timezone():
     timezone_name = (
         str(os.getenv("SPARKFLOW_TIMEZONE") or "").strip()
@@ -533,18 +655,7 @@ def _normalize_send_window():
 
 
 def _parse_sent_at(raw_value, local_tz):
-    if not raw_value:
-        return None
-    raw = str(raw_value).strip()
-    if raw.endswith("Z"):
-        raw = raw[:-1] + "+00:00"
-    try:
-        parsed = datetime.fromisoformat(raw)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=local_tz)
-    return parsed.astimezone(local_tz)
+    return parse_sent_at(raw_value, local_tz)
 
 
 def _account_identity(user):
@@ -629,72 +740,152 @@ def _scheduled_send_time(user, target_name, send_window, now):
     return start_of_window + timedelta(minutes=offset_minutes)
 
 
-def _build_target_status(account, target_name, now, send_window):
-    history = dict(account.get("message_history") or {})
-    failure_queue = dict(account.get("failure_queue") or {})
-    friend_index = _friend_index_status(account, target_name)
-
-    history_entry = history.get(target_name) or {}
-    sent_at = _parse_sent_at(history_entry.get("sentAt"), now.tzinfo)
-    if sent_at and sent_at.date() == now.date():
-        return {
-            "target": target_name,
-            "status": "sent",
-            "message": str(history_entry.get("message") or ""),
-            "sentAt": sent_at.isoformat(timespec="seconds"),
-            "lastAttemptAt": "",
-            "category": "",
-            "reason": "",
-            "attemptCount": 0,
-            "scheduledAt": "",
-            "friendIndex": friend_index,
-        }
-
-    failure_entry = failure_queue.get(target_name) or {}
-    last_attempt_at = _parse_sent_at(failure_entry.get("lastAttemptAt"), now.tzinfo)
-    if last_attempt_at and last_attempt_at.date() == now.date():
-        return {
-            "target": target_name,
-            "status": "failed",
-            "message": str(failure_entry.get("message") or ""),
-            "sentAt": "",
-            "lastAttemptAt": last_attempt_at.isoformat(timespec="seconds"),
-            "category": str(failure_entry.get("category") or ""),
-            "reason": str(failure_entry.get("reason") or ""),
-            "attemptCount": int(failure_entry.get("attemptCount") or 0),
-            "scheduledAt": "",
-            "friendIndex": friend_index,
-        }
-
-    scheduled_at = None
-    if send_window.get("enabled"):
-        scheduled_at = _scheduled_send_time(account, target_name, send_window, now)
-        if scheduled_at > now:
-            return {
-                "target": target_name,
-                "status": "pending",
-                "message": "",
-                "sentAt": "",
-                "lastAttemptAt": "",
-                "category": "",
-                "reason": "",
-                "attemptCount": 0,
-                "scheduledAt": scheduled_at.isoformat(timespec="seconds"),
-                "friendIndex": friend_index,
-            }
-
+def _base_target_status(account, target_name, now):
     return {
         "target": target_name,
-        "status": "unprocessed",
+        "status": "",
         "message": "",
         "sentAt": "",
         "lastAttemptAt": "",
         "category": "",
         "reason": "",
         "attemptCount": 0,
-        "scheduledAt": scheduled_at.isoformat(timespec="seconds") if scheduled_at else "",
-        "friendIndex": friend_index,
+        "scheduledAt": "",
+        "friendIndex": _friend_index_status(account, target_name),
+        "confirmationLevel": "",
+        "confirmationSource": "",
+        "confirmationDetail": "",
+        "needsVerification": False,
+        "legacyUnverified": False,
+        "displaySentAt": "",
+        "displayLastAttemptAt": "",
+        "displayScheduledAt": "",
+        "confirmationLabel": "",
+        "categoryLabel": "",
     }
+
+
+def _history_entry_is_strong_confirmed(history_entry, sent_at, now):
+    return history_entry_is_strong_confirmed_today(history_entry, now)
+
+
+def _format_short_time(raw_value, now):
+    parsed = _parse_sent_at(raw_value, now.tzinfo)
+    if not parsed:
+        return ""
+    if parsed.date() == now.date():
+        return parsed.strftime("%H:%M:%S")
+    return parsed.strftime("%m-%d %H:%M")
+
+
+def _finalize_target_status(item, now):
+    item = dict(item)
+    item["displaySentAt"] = _format_short_time(item.get("sentAt"), now)
+    item["displayLastAttemptAt"] = _format_short_time(item.get("lastAttemptAt"), now)
+    item["displayScheduledAt"] = _format_short_time(item.get("scheduledAt"), now)
+    source = str(item.get("confirmationSource") or "")
+    category = str(item.get("category") or "")
+    item["confirmationLabel"] = CONFIRMATION_LABELS.get(source, source or "-")
+    item["categoryLabel"] = FAILURE_CATEGORY_LABELS.get(category, category or "-")
+    return item
+
+
+def _build_target_status(account, target_name, now, send_window):
+    history = dict(account.get("message_history") or {})
+    failure_queue = dict(account.get("failure_queue") or {})
+    item = _base_target_status(account, target_name, now)
+
+    history_entry = dict(history.get(target_name) or {})
+    sent_at = _parse_sent_at(history_entry.get("sentAt"), now.tzinfo)
+    if _history_entry_is_strong_confirmed(history_entry, sent_at, now):
+        item.update(
+            {
+                "status": "sent",
+                "message": str(history_entry.get("message") or ""),
+                "sentAt": sent_at.isoformat(timespec="seconds"),
+                "confirmationLevel": str(history_entry.get("confirmationLevel") or "strong"),
+                "confirmationSource": str(history_entry.get("confirmationSource") or "browser_visible_count_increased"),
+                "confirmationDetail": str(history_entry.get("confirmationDetail") or ""),
+            }
+        )
+        return _finalize_target_status(item, now)
+
+    failure_entry = dict(failure_queue.get(target_name) or {})
+    last_attempt_at = _parse_sent_at(failure_entry.get("lastAttemptAt"), now.tzinfo)
+    failure_is_today = bool(last_attempt_at and last_attempt_at.date() == now.date())
+
+    if sent_at and sent_at.date() == now.date():
+        confirmation_level = str(history_entry.get("confirmationLevel") or "legacy")
+        confirmation_source = str(history_entry.get("confirmationSource") or "legacy_sentAt_only")
+        confirmation_detail = str(history_entry.get("confirmationDetail") or "")
+        legacy_unverified = not history_entry.get("confirmationLevel")
+        if legacy_unverified:
+            confirmation_detail = confirmation_detail or "旧格式发送账本缺少强确认字段，已降级为待核验。"
+        item.update(
+            {
+                "status": "unconfirmed",
+                "message": str(history_entry.get("message") or failure_entry.get("message") or ""),
+                "sentAt": sent_at.isoformat(timespec="seconds"),
+                "lastAttemptAt": last_attempt_at.isoformat(timespec="seconds") if failure_is_today else "",
+                "category": str(failure_entry.get("category") or "send_unconfirmed"),
+                "reason": str(failure_entry.get("reason") or confirmation_detail or "发送记录缺少强确认，需要核验。"),
+                "attemptCount": int(failure_entry.get("attemptCount") or 0),
+                "confirmationLevel": confirmation_level,
+                "confirmationSource": confirmation_source,
+                "confirmationDetail": confirmation_detail,
+                "needsVerification": True,
+                "legacyUnverified": legacy_unverified,
+            }
+        )
+        return _finalize_target_status(item, now)
+
+    if failure_is_today:
+        category = str(failure_entry.get("category") or "")
+        status = "unconfirmed" if category == "send_unconfirmed" else "failed"
+        item.update(
+            {
+                "status": status,
+                "message": str(failure_entry.get("message") or ""),
+                "lastAttemptAt": last_attempt_at.isoformat(timespec="seconds"),
+                "category": category,
+                "reason": str(failure_entry.get("reason") or ""),
+                "attemptCount": int(failure_entry.get("attemptCount") or 0),
+                "confirmationLevel": str(failure_entry.get("confirmationLevel") or ("weak" if status == "unconfirmed" else "")),
+                "confirmationSource": str(failure_entry.get("confirmationSource") or ""),
+                "confirmationDetail": str(failure_entry.get("reason") or ""),
+                "needsVerification": status == "unconfirmed",
+            }
+        )
+        return _finalize_target_status(item, now)
+
+    scheduled_at = None
+    if send_window.get("enabled"):
+        scheduled_at = _scheduled_send_time(account, target_name, send_window, now)
+        if scheduled_at > now:
+            item.update(
+                {
+                    "status": "pending",
+                    "scheduledAt": scheduled_at.isoformat(timespec="seconds"),
+                }
+            )
+            return _finalize_target_status(item, now)
+
+    item.update(
+        {
+            "status": "unprocessed",
+            "scheduledAt": scheduled_at.isoformat(timespec="seconds") if scheduled_at else "",
+        }
+    )
+    return _finalize_target_status(item, now)
+
+
+def _orphan_records(account, configured_targets):
+    configured_target_set = {str(target) for target in configured_targets}
+    history = dict(account.get("message_history") or {})
+    failure_queue = dict(account.get("failure_queue") or {})
+    orphan_history = sorted(str(target) for target in history if str(target) not in configured_target_set)
+    orphan_failure = sorted(str(target) for target in failure_queue if str(target) not in configured_target_set)
+    return orphan_history, orphan_failure
 
 
 def get_send_console_snapshot():
@@ -706,13 +897,23 @@ def get_send_console_snapshot():
         "enabled_accounts": len(accounts),
         "total_targets": 0,
         "today_sent_targets": 0,
+        "today_confirmed_targets": 0,
+        "today_unconfirmed_targets": 0,
+        "today_legacy_unverified_targets": 0,
         "today_failed_targets": 0,
         "today_pending_targets": 0,
         "today_unprocessed_targets": 0,
         "today_account_blocked_targets": 0,
+        "today_attention_targets": 0,
         "today_remaining_targets": 0,
         "today_account_failures": 0,
         "today_account_paused": 0,
+        "today_warning_count": 0,
+        "orphan_history_records": 0,
+        "orphan_failure_records": 0,
+        "last_confirmed_at": "",
+        "last_confirmed_display": "",
+        "all_confirmed": False,
     }
     account_rows = []
     account_failure_pause_after = _account_failure_pause_after_attempts()
@@ -720,14 +921,16 @@ def get_send_console_snapshot():
     for account in accounts:
         configured_targets = list(account.get("targets") or [])
         statuses = [_build_target_status(account, target_name, now, send_window) for target_name in configured_targets]
-        sent_targets = [item for item in statuses if item["status"] == "sent"]
+        confirmed_targets = [item for item in statuses if item["status"] == "sent"]
+        sent_targets = confirmed_targets
+        unconfirmed_targets = [item for item in statuses if item["status"] == "unconfirmed"]
         failed_targets = [item for item in statuses if item["status"] == "failed"]
         account_failure = _account_failure_entry_today(account, now)
         account_paused = bool(account_failure and _coerce_attempt_count(account_failure) >= account_failure_pause_after)
         account_blocked_targets = []
         if account_paused:
             account_blocked_targets = [
-                _account_blocked_target_status(item, account_failure)
+                _finalize_target_status(_account_blocked_target_status(item, account_failure), now)
                 for item in statuses
                 if item["status"] in {"pending", "unprocessed"}
             ]
@@ -747,22 +950,63 @@ def get_send_console_snapshot():
         except (TypeError, ValueError):
             friend_index_meta["scannedCount"] = 0
 
+        orphan_history, orphan_failure = _orphan_records(account, configured_targets)
+        warnings = []
+        if not configured_targets:
+            warnings.append({"category": "no_targets", "message": "该启用账号没有配置目标，不能代表全部续上。"})
+        if orphan_history:
+            warnings.append({"category": "orphan_history", "message": f"有 {len(orphan_history)} 条发送账本不在当前目标列表中。"})
+        if orphan_failure:
+            warnings.append({"category": "orphan_failure", "message": f"有 {len(orphan_failure)} 条失败队列记录不在当前目标列表中。"})
+        legacy_unverified_targets = [item for item in unconfirmed_targets if item.get("legacyUnverified")]
+        attention_count = len(unconfirmed_targets) + len(failed_targets) + len(account_blocked_targets)
+        pending_count = len(pending_targets) + len(unprocessed_targets)
+        confirmed_times = [
+            _parse_sent_at(item.get("sentAt"), now.tzinfo)
+            for item in confirmed_targets
+            if item.get("sentAt")
+        ]
+        confirmed_times = [item for item in confirmed_times if item]
+        last_confirmed_at = max(confirmed_times).isoformat(timespec="seconds") if confirmed_times else ""
+        if account_paused:
+            account_state = "paused"
+        elif attention_count:
+            account_state = "attention"
+        elif warnings:
+            account_state = "warning"
+        elif pending_count:
+            account_state = "pending"
+        else:
+            account_state = "healthy"
+
         summary["total_targets"] += len(configured_targets)
         summary["today_sent_targets"] += len(sent_targets)
+        summary["today_confirmed_targets"] += len(confirmed_targets)
+        summary["today_unconfirmed_targets"] += len(unconfirmed_targets)
+        summary["today_legacy_unverified_targets"] += len(legacy_unverified_targets)
         summary["today_failed_targets"] += len(failed_targets)
         summary["today_pending_targets"] += len(pending_targets)
         summary["today_unprocessed_targets"] += len(unprocessed_targets)
         summary["today_account_blocked_targets"] += len(account_blocked_targets)
+        summary["today_attention_targets"] += attention_count
         summary["today_remaining_targets"] += (
-            len(failed_targets)
+            len(unconfirmed_targets)
+            + len(failed_targets)
             + len(pending_targets)
             + len(unprocessed_targets)
             + len(account_blocked_targets)
         )
+        summary["today_warning_count"] += len(warnings)
+        summary["orphan_history_records"] += len(orphan_history)
+        summary["orphan_failure_records"] += len(orphan_failure)
         if account_failure:
             summary["today_account_failures"] += 1
         if account_paused:
             summary["today_account_paused"] += 1
+        if last_confirmed_at and (
+            not summary["last_confirmed_at"] or last_confirmed_at > summary["last_confirmed_at"]
+        ):
+            summary["last_confirmed_at"] = last_confirmed_at
 
         account_rows.append(
             {
@@ -770,24 +1014,90 @@ def get_send_console_snapshot():
                 "username": account.get("username") or "",
                 "total_targets": len(configured_targets),
                 "sent_targets": sent_targets,
+                "confirmed_targets": confirmed_targets,
+                "unconfirmed_targets": unconfirmed_targets,
+                "legacy_unverified_targets": legacy_unverified_targets,
                 "failed_targets": failed_targets,
                 "pending_targets": pending_targets,
                 "unprocessed_targets": unprocessed_targets,
                 "account_blocked_targets": account_blocked_targets,
                 "last_failure_reason": failed_targets[0]["reason"] if failed_targets else "",
+                "last_unconfirmed_reason": unconfirmed_targets[0]["reason"] if unconfirmed_targets else "",
                 "failure_queue": dict(account.get("failure_queue") or {}),
                 "account_failure": account_failure,
                 "account_paused": account_paused,
                 "account_failure_pause_after": account_failure_pause_after,
+                "state": account_state,
+                "attention_count": attention_count,
+                "pending_count": pending_count,
+                "last_confirmed_at": last_confirmed_at,
+                "last_confirmed_display": _format_short_time(last_confirmed_at, now),
                 "friend_index_meta": friend_index_meta,
                 "friend_index_count": len(dict(account.get("friend_index") or {})),
+                "warnings": warnings,
+                "orphan_history_records": orphan_history,
+                "orphan_failure_records": orphan_failure,
             }
         )
 
+    state_rank = {"paused": 0, "attention": 1, "warning": 2, "pending": 3, "healthy": 4}
+    account_rows.sort(key=lambda row: (state_rank.get(row.get("state"), 9), str(row.get("username") or "")))
+
+    summary["all_confirmed"] = bool(
+        summary["total_targets"] > 0
+        and summary["today_confirmed_targets"] == summary["total_targets"]
+        and summary["today_remaining_targets"] == 0
+        and summary["today_warning_count"] == 0
+        and summary["orphan_history_records"] == 0
+        and summary["orphan_failure_records"] == 0
+    )
+    summary["last_confirmed_display"] = _format_short_time(summary["last_confirmed_at"], now)
+
     return {
         "now": now.isoformat(timespec="seconds"),
+        "nowDisplay": now.strftime("%m-%d %H:%M"),
         "summary": summary,
         "accounts": account_rows,
+    }
+
+
+def get_overview_snapshot():
+    send_console = get_send_console_snapshot()
+    summary = dict(send_console["summary"])
+    accounts = []
+    for row in send_console["accounts"]:
+        accounts.append(
+            {
+                "uniqueId": row["unique_id"],
+                "displayName": row["username"],
+                "state": row["state"],
+                "total": row["total_targets"],
+                "confirmed": len(row["confirmed_targets"]),
+                "attention": row["attention_count"],
+                "pending": row["pending_count"],
+                "lastConfirmedAt": row["last_confirmed_at"],
+            }
+        )
+    return {
+        "now": send_console["now"],
+        "schedule": get_schedule_snapshot(),
+        "task": task_run_lock_status(),
+        "summary": {
+            "enabledAccounts": summary["enabled_accounts"],
+            "total": summary["total_targets"],
+            "confirmed": summary["today_confirmed_targets"],
+            "unconfirmed": summary["today_unconfirmed_targets"],
+            "failed": summary["today_failed_targets"],
+            "blocked": summary["today_account_blocked_targets"],
+            "attention": summary["today_attention_targets"],
+            "pending": summary["today_pending_targets"],
+            "unprocessed": summary["today_unprocessed_targets"],
+            "remaining": summary["today_remaining_targets"],
+            "warnings": summary["today_warning_count"],
+            "lastConfirmedAt": summary["last_confirmed_at"],
+            "allConfirmed": summary["all_confirmed"],
+        },
+        "accounts": accounts,
     }
 
 
@@ -811,14 +1121,16 @@ def get_ops_snapshot():
     Every external call is individually guarded so the dashboard always
     renders, even when Docker or crontab are not available.
     """
+    send_console = get_send_console_snapshot()
     return {
         "compose_root": str(compose_root()),
         "compose_file": str(compose_file_path() or ""),
         "containers": get_container_status(),
         "task_containers": get_task_container_rows(),
-        "send_console": get_send_console_snapshot(),
+        "send_console": send_console,
         "task_lock": task_run_lock_status(),
         "daily_schedule": current_daily_schedule(),
+        "schedule": get_schedule_snapshot(),
         "crontab": read_crontab(),
         "log_tail": read_log_tail(120),
         "image_present": _check_image_present(),

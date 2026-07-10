@@ -1,833 +1,298 @@
 {% extends "base.html" %}
 
 {% block nav_key %}send_console{% endblock %}
+{% block page_key %}send-console{% endblock %}
 {% block title %}发送控制台{% endblock %}
 {% block page_title %}发送控制台{% endblock %}
-{% block page_subtitle %}今日发送总览{% endblock %}
+{% block page_subtitle %}异常优先查看，健康账号默认收起{% endblock %}
 
 {% block topbar_actions %}
-<a class="ghost-button" href="/">返回首页</a>
-<form method="post" action="/ops/run-failed">
+{% set top_summary = ops.send_console.summary %}
+<a class="button button-quiet" href="/">
+  <i data-lucide="arrow-left"></i><span>返回首页</span>
+</a>
+<form
+  method="post"
+  action="/ops/run-failed"
+  data-confirm-title="补发异常目标"
+  data-confirm="将补发 {{ top_summary.today_attention_targets }} 个待核验、失败或受账号异常影响的目标。确认继续吗？"
+  data-confirm-accept="开始补发"
+  data-confirm-tone="primary"
+>
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <button class="soft-button" type="submit" {% if ops.task_lock and ops.task_lock.running %}disabled{% endif %}>补发未成功目标</button>
+  <button
+    class="button button-soft"
+    type="submit"
+    data-action-count-source="attention"
+    {% if ops.task_lock.running or top_summary.today_attention_targets == 0 %}disabled{% endif %}
+  >
+    <i data-lucide="refresh-cw"></i>
+    <span>补发异常 <b data-action-count>{{ top_summary.today_attention_targets }}</b></span>
+  </button>
 </form>
-<form method="post" action="/ops/run-unsent">
+<form
+  method="post"
+  action="/ops/run-unsent"
+  data-confirm-title="补发今日待发送目标"
+  data-confirm="将立即补发 {{ top_summary.today_pending_targets + top_summary.today_unprocessed_targets }} 个尚未强确认且仍可重试的目标。确认继续吗？"
+  data-confirm-accept="开始补发"
+  data-confirm-tone="primary"
+>
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <button class="soft-button" type="submit" {% if ops.task_lock and ops.task_lock.running %}disabled{% endif %}>补发未发送目标</button>
-</form>
-<form method="post" action="/ops/run-now">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <button type="submit" {% if ops.task_lock and ops.task_lock.running %}disabled{% endif %}>补发全部对象</button>
+  <button
+    class="button button-primary"
+    type="submit"
+    data-action-count-source="pending"
+    {% if ops.task_lock.running or (top_summary.today_pending_targets + top_summary.today_unprocessed_targets) == 0 %}disabled{% endif %}
+  >
+    <i data-lucide="send"></i>
+    <span>补发待发送 <b data-action-count>{{ top_summary.today_pending_targets + top_summary.today_unprocessed_targets }}</b></span>
+  </button>
 </form>
 {% endblock %}
 
 {% block content %}
-<style>
-  .task-state-banner {
-    margin: 0 0 16px;
-    padding: 12px 14px;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    font-size: 13px;
-    font-weight: 700;
-  }
-  .task-state-banner.success { background: var(--success-soft); color: var(--success); }
-  .task-state-banner.warning { background: var(--warning-soft); color: var(--warning); }
-  .task-state-banner.info { background: var(--info-soft); color: var(--info); }
-</style>
-
-{% set task_lock = ops.task_lock %}
-{% if task_lock and task_lock.running %}
-<div class="task-state-banner warning">发送任务运行中：pid {{ task_lock.pid or "unknown" }}，已运行约 {{ task_lock.ageSeconds }} 秒。补发按钮会等任务结束后再可用。</div>
-{% elif task_lock and task_lock.staleRemoved %}
-<div class="task-state-banner info">已自动清理一个过期任务锁，可以重新发起补发。</div>
-{% else %}
-<div class="task-state-banner success">当前没有发送任务运行。</div>
-{% endif %}
-
-
 {% set send_console = ops.send_console %}
-<style>
-  .console-shell {
-    display: grid;
-    gap: 18px;
-  }
+{% set summary = send_console.summary %}
 
-  .console-overview {
-    display: grid;
-    gap: 18px;
-  }
+<div class="console-shell" data-overview-root>
+  <div
+    class="status-banner {% if ops.task_lock.running %}warning{% elif ops.task_lock.stale %}info{% else %}success{% endif %}"
+    data-task-banner
+  >
+    <strong>
+      <i data-lucide="{% if ops.task_lock.running %}loader-circle{% elif ops.task_lock.stale %}info{% else %}circle-check{% endif %}"></i>
+      <span data-task-text>
+        {% if ops.task_lock.running %}
+        发送任务运行中，已运行约 {{ ops.task_lock.ageSeconds }} 秒
+        {% elif ops.task_lock.stale %}
+        检测到过期任务锁，下次启动任务时会自动清理
+        {% else %}
+        当前没有发送任务运行
+        {% endif %}
+      </span>
+    </strong>
+    <span class="pill info" data-overview-live-state>实时</span>
+  </div>
 
-  .console-stats .stat-card {
-    min-height: 132px;
-  }
+  <div class="status-banner info refresh-notice" data-refresh-notice>
+    <strong><i data-lucide="circle-check"></i><span>任务已结束，刷新后可查看最新目标级结果。</span></strong>
+    <button class="button button-quiet" type="button" data-refresh-page>
+      <i data-lucide="refresh-cw"></i><span>刷新详情</span>
+    </button>
+  </div>
 
-  .console-kpi-icon {
-    font-size: 26px;
-  }
+  <section class="metric-grid" aria-label="发送状态汇总">
+    <article class="metric-card info">
+      <div class="metric-label">总目标</div>
+      <div class="metric-value" data-overview-value="total">{{ summary.total_targets }}</div>
+      <div class="metric-help">{{ summary.enabled_accounts }} 个启用账号</div>
+    </article>
+    <article class="metric-card success">
+      <div class="metric-label">强确认成功</div>
+      <div class="metric-value" data-overview-value="confirmed">{{ summary.today_confirmed_targets }}</div>
+      <div class="metric-help">服务端回执或页面回显</div>
+    </article>
+    <article class="metric-card danger">
+      <div class="metric-label">需要处理</div>
+      <div class="metric-value" data-overview-value="attention">{{ summary.today_attention_targets }}</div>
+      <div class="metric-help">待核验、失败和账号阻断</div>
+    </article>
+    <article class="metric-card warning">
+      <div class="metric-label">待发送</div>
+      <div class="metric-value" data-overview-value="pending">
+        {{ summary.today_pending_targets + summary.today_unprocessed_targets }}
+      </div>
+      <div class="metric-help">等待调度或尚未处理</div>
+    </article>
+  </section>
 
-  .console-account-list {
-    display: grid;
-    gap: 22px;
-  }
+  <section class="dashboard-section">
+    <div class="section-header">
+      <div>
+        <h2 class="section-title">账号明细</h2>
+        <p class="muted compact">异常账号自动展开；成功、异常和待发送分开查看。</p>
+      </div>
+      <span class="pill">{{ send_console.nowDisplay }}</span>
+    </div>
 
-  .account-panel {
-    padding: 20px 20px 22px;
-    border-left: 4px solid var(--border-strong);
-  }
-  .account-panel.is-success { border-left-color: var(--success); }
-  .account-panel.is-warning { border-left-color: var(--warning); }
-  .account-panel.is-danger { border-left-color: var(--danger); }
+    <div class="account-console-list">
+      {% for account in send_console.accounts %}
+      {% set exception_count = account.unconfirmed_targets|length + account.failed_targets|length + account.account_blocked_targets|length %}
+      {% set success_count = account.confirmed_targets|length %}
+      {% set waiting_targets = account.pending_targets + account.unprocessed_targets %}
+      {% set default_segment = "exceptions" if exception_count else ("success" if success_count else "pending") %}
+      <details
+        class="account-console state-{{ account.state }}"
+        id="account-{{ account.unique_id }}"
+        data-segment-owner
+        data-account-overview="{{ account.unique_id }}"
+        {% if account.state in ["attention", "paused", "warning"] %}open{% endif %}
+      >
+        <summary>
+          <span class="account-ident">
+            <span class="account-avatar">{{ (account.username or "A")[:1] }}</span>
+            <span class="account-name">
+              <strong>{{ account.username }}</strong>
+              <small>{{ account.confirmed_targets|length }}/{{ account.total_targets }} 已强确认</small>
+            </span>
+          </span>
+          <span class="account-console-metrics">
+            <span class="status-chip success">已确认 <b data-account-confirmed>{{ success_count }}</b></span>
+            {% if exception_count %}<span class="status-chip danger">需处理 <b data-account-attention>{{ exception_count }}</b></span>{% endif %}
+            {% if waiting_targets|length %}<span class="status-chip warning">待发送 <b data-account-pending>{{ waiting_targets|length }}</b></span>{% endif %}
+            {% if account.account_paused %}<span class="status-chip danger">账号暂停</span>{% endif %}
+          </span>
+          <i class="summary-chevron" data-lucide="chevron-down"></i>
+        </summary>
 
-  .account-progress {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: -2px 0 16px;
-  }
-  .account-progress__bar {
-    flex: 1;
-    height: 8px;
-    border-radius: 999px;
-    background: var(--surface-tint);
-    overflow: hidden;
-  }
-  .account-progress__bar > i {
-    display: block;
-    height: 100%;
-    border-radius: 999px;
-    background: var(--fire-grad);
-    transition: width 0.6s ease;
-  }
-  .account-progress__label {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--text-soft);
-    white-space: nowrap;
-  }
-  .account-progress__label b { color: var(--text); }
+        <div class="account-console-body">
+          {% if account.warnings %}
+          <div class="warning-box">
+            {% for warning in account.warnings %}<div>{{ warning.message }}</div>{% endfor %}
+          </div>
+          {% endif %}
 
-  .account-panel__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 18px;
-    margin-bottom: 18px;
-  }
+          {% if account.account_failure %}
+          <div class="danger-box">
+            <strong>账号级异常：{{ account.account_failure.category or "-" }}</strong>
+            <div>今日尝试 {{ account.account_failure.attemptCount or 0 }}/{{ account.account_failure_pause_after }} · {{ account.account_failure.reason or "-" }}</div>
+          </div>
+          {% endif %}
 
-  .account-panel__meta {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    min-width: 0;
-  }
+          <div class="account-meta-strip">
+            <span>
+              好友索引：
+              {% if account.friend_index_meta.lastScanAt %}
+              {{ "完整" if account.friend_index_meta.lastScanComplete else "未完整" }}，记录 {{ account.friend_index_count }} 个
+              {% else %}
+              尚未扫描
+              {% endif %}
+            </span>
+            <span>最近强确认：{{ account.last_confirmed_display or "-" }}</span>
+          </div>
 
-  .account-avatar {
-    width: 38px;
-    height: 38px;
-    border-radius: 50%;
-    background: var(--fire-grad);
-    color: #fff;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 800;
-    box-shadow: 0 8px 16px rgba(255, 77, 109, 0.28);
-  }
+          <div class="segmented-control" data-segment-group role="tablist" aria-label="{{ account.username }} 发送状态">
+            <button class="segment-button {% if default_segment == 'exceptions' %}active{% endif %}" type="button" data-segment-target="exceptions">
+              <i data-lucide="triangle-alert"></i><span>异常 {{ exception_count }}</span>
+            </button>
+            <button class="segment-button {% if default_segment == 'success' %}active{% endif %}" type="button" data-segment-target="success">
+              <i data-lucide="circle-check"></i><span>成功 {{ success_count }}</span>
+            </button>
+            <button class="segment-button {% if default_segment == 'pending' %}active{% endif %}" type="button" data-segment-target="pending">
+              <i data-lucide="clock-3"></i><span>待发送 {{ waiting_targets|length }}</span>
+            </button>
+          </div>
 
-  .account-panel__name {
-    font-size: 18px;
-    font-weight: 700;
-    line-height: 1.2;
-  }
+          <div data-segment-panel="exceptions" {% if default_segment != "exceptions" %}hidden{% endif %}>
+            <div class="target-list">
+              {% for item in account.unconfirmed_targets %}
+              <article class="target-record">
+                <div class="target-record-main">
+                  <strong>{{ item.target }}</strong>
+                  <small>{{ item.categoryLabel }} · 已尝试 {{ item.attemptCount or 0 }} 次</small>
+                </div>
+                <div class="target-reason" title="{{ item.reason or item.confirmationDetail or '' }}">
+                  {{ item.reason or item.confirmationDetail or "发送结果缺少强确认" }}
+                </div>
+                <span class="target-meta">{{ item.displayLastAttemptAt or item.displaySentAt or "-" }}</span>
+                <form method="post" action="/accounts/{{ account.unique_id }}/retry-target">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="target" value="{{ item.target }}">
+                  <button class="button button-soft" type="submit"><i data-lucide="refresh-cw"></i><span>重试</span></button>
+                </form>
+              </article>
+              {% endfor %}
 
-  .account-panel__subline {
-    margin-top: 6px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: var(--text-soft);
-    font-size: 13px;
-    flex-wrap: wrap;
-  }
+              {% for item in account.failed_targets %}
+              <article class="target-record">
+                <div class="target-record-main">
+                  <strong>{{ item.target }}</strong>
+                  <small>{{ item.categoryLabel }} · 已尝试 {{ item.attemptCount or 0 }} 次</small>
+                </div>
+                <div class="target-reason" title="{{ item.reason or '' }}">{{ item.reason or "未记录失败原因" }}</div>
+                <span class="target-meta">{{ item.displayLastAttemptAt or "-" }}</span>
+                <form method="post" action="/accounts/{{ account.unique_id }}/retry-target">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="target" value="{{ item.target }}">
+                  <button class="button button-soft" type="submit"><i data-lucide="refresh-cw"></i><span>重试</span></button>
+                </form>
+              </article>
+              {% endfor %}
 
-  .account-panel__subline code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    color: var(--text-faint);
-    background: var(--surface-tint);
-    padding: 2px 6px;
-    border-radius: 999px;
-  }
+              {% for item in account.account_blocked_targets %}
+              <article class="target-record">
+                <div class="target-record-main">
+                  <strong>{{ item.target }}</strong>
+                  <small>受账号异常影响</small>
+                </div>
+                <div class="target-reason" title="{{ item.reason or '' }}">{{ item.reason or item.categoryLabel }}</div>
+                <span class="target-meta">{{ item.displayLastAttemptAt or "-" }}</span>
+                <form method="post" action="/accounts/{{ account.unique_id }}/retry-target">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="target" value="{{ item.target }}">
+                  <button class="button button-soft" type="submit"><i data-lucide="refresh-cw"></i><span>重试</span></button>
+                </form>
+              </article>
+              {% endfor %}
 
-  .account-panel__status {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
+              {% if exception_count == 0 %}
+              <div class="empty-state">该账号今天没有待核验、失败或受阻断的目标。</div>
+              {% endif %}
+            </div>
+          </div>
 
-  .account-panel__collapse {
-    color: var(--text-faint);
-    font-size: 18px;
-    line-height: 1;
-  }
+          <div data-segment-panel="success" {% if default_segment != "success" %}hidden{% endif %}>
+            <div class="target-list">
+              {% for item in account.confirmed_targets %}
+              <article class="target-record">
+                <div class="target-record-main">
+                  <strong>{{ item.target }}</strong>
+                  <small>{{ item.confirmationLabel }}</small>
+                </div>
+                <div class="target-message" title="{{ item.message or '' }}">{{ item.message or "未保存消息正文" }}</div>
+                <span class="target-meta" title="{{ item.sentAt or '' }}">{{ item.displaySentAt or "-" }}</span>
+                <form
+                  method="post"
+                  action="/accounts/{{ account.unique_id }}/mark-target-unconfirmed"
+                  data-confirm-title="标记为待核验"
+                  data-confirm="将把“{{ item.target }}”的今日强确认记录改为待核验并加入补发队列。确认继续吗？"
+                  data-confirm-accept="标记待核验"
+                >
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="target" value="{{ item.target }}">
+                  <button class="button button-quiet" type="submit"><i data-lucide="flag"></i><span>待核验</span></button>
+                </form>
+              </article>
+              {% else %}
+              <div class="empty-state">该账号今天还没有强确认记录。</div>
+              {% endfor %}
+            </div>
+          </div>
 
-  .account-alert,
-  .friend-scan-meta {
-    margin: -4px 0 18px;
-    padding: 12px 14px;
-    border-radius: 12px;
-    border: 1px solid var(--border);
-    font-size: 13px;
-    color: var(--text-main);
-    background: var(--surface-tint);
-  }
-
-  .account-alert {
-    border-color: rgba(255, 185, 70, 0.42);
-    background: var(--warning-soft);
-  }
-
-  .account-alert strong,
-  .friend-scan-meta strong {
-    display: block;
-    margin-bottom: 6px;
-  }
-
-  .account-alert__line,
-  .friend-scan-meta__line {
-    margin-top: 4px;
-    color: var(--text-soft);
-    line-height: 1.45;
-    word-break: break-word;
-  }
-
-  .account-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 18px;
-  }
-
-  .data-card {
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    background: var(--surface);
-    box-shadow: var(--shadow-soft);
-    overflow: hidden;
-  }
-
-  .data-card__head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 16px 18px 12px;
-  }
-
-  .data-card__title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 15px;
-    font-weight: 700;
-  }
-
-  .data-card__title i {
-    font-style: normal;
-    display: inline-flex;
-    width: 18px;
-    justify-content: center;
-  }
-
-  .data-card__title.success {
-    color: var(--success);
-  }
-
-  .data-card__title.danger {
-    color: var(--danger);
-  }
-
-  .data-card__title.warning {
-    color: var(--warning);
-  }
-
-  .data-card__title.info {
-    color: var(--info);
-  }
-
-  .data-card__table {
-    border-left: none;
-    border-right: none;
-    border-radius: 0;
-  }
-
-  .data-card__table td:first-child,
-  .data-card__table th:first-child {
-    min-width: 176px;
-  }
-
-  .data-card__table td:last-child,
-  .data-card__table th:last-child {
-    white-space: nowrap;
-  }
-
-  .data-card__footer {
-    padding: 10px 18px 14px;
-    display: flex;
-    justify-content: flex-end;
-    font-size: 13px;
-    color: var(--primary);
-    font-weight: 700;
-  }
-
-  .data-card__footer-button {
-    border: none;
-    background: transparent;
-    color: var(--primary);
-    padding: 0;
-    box-shadow: none;
-    border-radius: 0;
-    font-size: 13px;
-    font-weight: 700;
-  }
-
-  .data-card__footer-button:hover {
-    transform: none;
-    box-shadow: none;
-    text-decoration: underline;
-  }
-
-  .data-card__footer-button[hidden] {
-    display: none;
-  }
-
-  .data-card__extra {
-    display: none;
-    padding: 0 18px 16px;
-  }
-
-  .data-card__extra.is-open {
-    display: block;
-  }
-
-  .data-card__extra .table-shell {
-    border-radius: 14px;
-  }
-
-  .retry-button {
-    padding: 8px 12px;
-    border-radius: 10px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-
-  .console-empty {
-    padding: 46px 24px;
-    text-align: center;
-    color: var(--text-soft);
-    border-radius: 18px;
-    border: 1px dashed var(--border-strong);
-    background: var(--empty-bg);
-  }
-
-  .console-footer {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 18px;
-    padding: 6px 0 0;
-    color: var(--text-soft);
-    font-size: 13px;
-  }
-
-  .console-pagination {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .console-page {
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: #fff;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-soft);
-    font-weight: 700;
-  }
-
-  .console-page.active {
-    background: linear-gradient(180deg, #3d79ff, #2f67ff);
-    color: #fff;
-    border-color: transparent;
-    box-shadow: 0 10px 18px rgba(47, 103, 255, 0.18);
-  }
-
-  .console-page.ghost {
-    width: auto;
-    padding: 0 12px;
-  }
-
-  @media (max-width: 1380px) {
-    .account-grid {
-      grid-template-columns: 1fr;
-    }
-  }
-</style>
-
-<div class="console-shell">
-  <section class="console-overview">
-    <div class="overview-time">当前时间：{{ send_console.now|replace('T', ' ') }}</div>
-
-    <div class="stats-grid console-stats">
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">总目标</span>
-          <strong class="stat-value">{{ send_console.summary.total_targets }}</strong>
-          <span class="stat-help">启用账号 {{ send_console.summary.enabled_accounts }} 个 · 今日发送账本总量</span>
+          <div data-segment-panel="pending" {% if default_segment != "pending" %}hidden{% endif %}>
+            <div class="target-list">
+              {% for item in waiting_targets %}
+              <article class="target-record">
+                <div class="target-record-main">
+                  <strong>{{ item.target }}</strong>
+                  <small>{% if item.status == "pending" %}等待计划时间{% else %}尚未处理{% endif %}</small>
+                </div>
+                <div class="target-message">好友索引：{% if item.friendIndex.seen %}已记录{% else %}尚未记录{% endif %}</div>
+                <span class="target-meta">{{ item.displayScheduledAt or "-" }}</span>
+                <span class="status-chip warning">待发送</span>
+              </article>
+              {% else %}
+              <div class="empty-state">该账号今天没有待发送目标。</div>
+              {% endfor %}
+            </div>
+          </div>
         </div>
-        <div class="stat-icon blue"><span class="console-kpi-icon">👥</span></div>
-      </article>
-
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">今日成功目标</span>
-          <strong class="stat-value">{{ send_console.summary.today_sent_targets }}</strong>
-          <span class="stat-help positive">已完成 {{ send_console.summary.today_sent_targets }}/{{ send_console.summary.total_targets }}</span>
-        </div>
-        <div class="stat-icon green"><span class="console-kpi-icon">🎯</span></div>
-      </article>
-
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">失败待补发</span>
-          <strong class="stat-value">{{ send_console.summary.today_failed_targets }}</strong>
-          <span class="stat-help negative">按失败分类进入补发与重试</span>
-        </div>
-        <div class="stat-icon red"><span class="console-kpi-icon">⚠</span></div>
-      </article>
-
-      <article class="stat-card">
-        <div class="stat-meta">
-          <span class="stat-label">未完成目标</span>
-          <strong class="stat-value">{{ send_console.summary.today_remaining_targets }}</strong>
-          <span class="stat-help">正常待发 {{ send_console.summary.today_pending_targets + send_console.summary.today_unprocessed_targets }} 个 · 账号异常影响 {{ send_console.summary.today_account_blocked_targets or 0 }} 个</span>
-        </div>
-        <div class="stat-icon orange"><span class="console-kpi-icon">◔</span></div>
-      </article>
+      </details>
+      {% else %}
+      <div class="empty-state">当前没有启用账号。</div>
+      {% endfor %}
     </div>
   </section>
-
-  {% if send_console.accounts %}
-  <section class="console-account-list">
-    {% for account in send_console.accounts %}
-    {% set at = account.total_targets or 1 %}
-    {% set ad = account.sent_targets|length %}
-    {% set ap = (ad / at * 100)|round(0)|int %}
-    {% set panel_state = 'is-danger' if (account.account_paused or account.account_failure) else ('is-warning' if account.failed_targets|length else ('is-success' if ad == account.total_targets else 'is-warning')) %}
-    <article class="panel account-panel {{ panel_state }}">
-      <div class="account-panel__header">
-        <div class="account-panel__meta">
-          <div class="account-avatar">{{ (account.username or 'A')[:1] }}</div>
-          <div>
-            <div class="account-panel__name">{{ account.username }}</div>
-            <div class="account-panel__subline">
-              <span>unique_id:</span>
-              <code>{{ account.unique_id }}</code>
-            </div>
-          </div>
-        </div>
-
-        <div class="account-panel__status">
-          <span class="status-chip success">成功 {{ account.sent_targets|length }}</span>
-          <span class="status-chip info">完成 {{ account.sent_targets|length }}/{{ account.total_targets }}</span>
-          <span class="status-chip danger">失败 {{ account.failed_targets|length }}</span>
-          <span class="status-chip warning">待发送 {{ account.pending_targets|length }}</span>
-          <span class="status-chip info">未处理 {{ account.unprocessed_targets|length }}</span>
-          {% if account.account_blocked_targets %}
-          <span class="status-chip warning">账号影响 {{ account.account_blocked_targets|length }}</span>
-          {% endif %}
-          {% if account.account_paused %}
-          <span class="status-chip danger">账号暂停</span>
-          {% elif account.account_failure %}
-          <span class="status-chip warning">账号异常</span>
-          {% endif %}
-          <span class="account-panel__collapse">⌃</span>
-        </div>
-      </div>
-
-      {% if account.account_failure %}
-      <div class="account-alert">
-        <strong>账号级页面异常：{{ account.account_failure.category or "-" }}</strong>
-        <div class="account-alert__line">
-          今日尝试 {{ account.account_failure.attemptCount or 0 }}/{{ account.account_failure_pause_after }}
-          {% if account.account_paused %}，已暂停今日自动发送{% endif %}
-          · lastAttemptAt {{ account.account_failure.lastAttemptAt or "-" }}
-        </div>
-        <div class="account-alert__line">原因：{{ account.account_failure.reason or "-" }}</div>
-        {% if account.account_failure.affectedTargets %}
-        <div class="account-alert__line">影响目标：{{ account.account_failure.affectedTargets|join(", ") }}</div>
-        {% endif %}
-      </div>
-      {% endif %}
-
-      {% if account.friend_index_meta.lastScanAt %}
-      <div class="friend-scan-meta">
-        <strong>
-          好友索引：{{ "完整" if account.friend_index_meta.lastScanComplete else "未完整" }}
-          · 已记录 {{ account.friend_index_count }} 个
-        </strong>
-        <div class="friend-scan-meta__line">
-          lastScanAt {{ account.friend_index_meta.lastScanAt }}
-          · scannedCount {{ account.friend_index_meta.scannedCount }}
-        </div>
-        {% if account.friend_index_meta.missingTargets %}
-        <div class="friend-scan-meta__line">索引扫描后仍缺失：{{ account.friend_index_meta.missingTargets|join(", ") }}</div>
-        {% endif %}
-      </div>
-      {% endif %}
-
-      <div class="account-progress">
-        <span class="account-progress__label">完成进度 <b>{{ ad }}/{{ account.total_targets }}</b> · {{ ap }}%</span>
-        <span class="account-progress__bar"><i style="width:{{ ap }}%"></i></span>
-      </div>
-
-      <div class="account-grid">
-        <section class="data-card">
-          <div class="data-card__head">
-            <div class="data-card__title success"><i>●</i><span>A. 今日已成功</span></div>
-          </div>
-          <div class="table-shell data-card__table">
-            <table>
-              <thead>
-                <tr>
-                  <th>目标</th>
-                  <th>消息</th>
-                  <th>sentAt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in account.sent_targets[:5] %}
-                <tr>
-                  <td>{{ item.target }}</td>
-                  <td>{{ item.message or "-" }}</td>
-                  <td>{{ item.sentAt or "-" }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="3">今日暂无成功目标</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="data-card__footer">
-            <button
-              type="button"
-              class="data-card__footer-button"
-              data-expand-target="sent-{{ loop.index0 }}"
-              data-total-label="查看全部（{{ account.sent_targets|length }}）"
-              {% if account.sent_targets|length <= 5 %}hidden{% endif %}
-            >查看全部（{{ account.sent_targets|length }}）</button>
-          </div>
-          <div class="data-card__extra" id="sent-{{ loop.index0 }}">
-            <div class="table-shell scrollable">
-              <table>
-                <thead>
-                  <tr>
-                    <th>目标</th>
-                    <th>消息</th>
-                    <th>sentAt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for item in account.sent_targets %}
-                  <tr>
-                    <td>{{ item.target }}</td>
-                    <td>{{ item.message or "-" }}</td>
-                    <td>{{ item.sentAt or "-" }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section class="data-card">
-          <div class="data-card__head">
-            <div class="data-card__title danger"><i>▲</i><span>B. 失败待补发</span></div>
-          </div>
-          <div class="table-shell data-card__table scrollable">
-            <table>
-              <thead>
-                <tr>
-                  <th>目标</th>
-                  <th>失败分类</th>
-                  <th>失败原因</th>
-                  <th>次数</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in account.failed_targets[:5] %}
-                <tr>
-                  <td>{{ item.target }}</td>
-                  <td>{{ item.category or "-" }}</td>
-                  <td>{{ item.reason or "-" }}</td>
-                  <td>{{ item.attemptCount or 0 }}</td>
-                  <td>
-                    <form method="post" action="/accounts/{{ account.unique_id }}/retry-target">
-                      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                      <input type="hidden" name="target" value="{{ item.target }}">
-                      <button type="submit" class="soft-button retry-button">重试此目标</button>
-                    </form>
-                  </td>
-                </tr>
-                {% else %}
-                <tr><td colspan="5">暂无失败待补发目标</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="data-card__footer">
-            <button
-              type="button"
-              class="data-card__footer-button"
-              data-expand-target="failed-{{ loop.index0 }}"
-              data-total-label="查看全部（{{ account.failed_targets|length }}）"
-              {% if account.failed_targets|length <= 5 %}hidden{% endif %}
-            >查看全部（{{ account.failed_targets|length }}）</button>
-          </div>
-          <div class="data-card__extra" id="failed-{{ loop.index0 }}">
-            <div class="table-shell scrollable">
-              <table>
-                <thead>
-                  <tr>
-                    <th>目标</th>
-                    <th>失败分类</th>
-                    <th>失败原因</th>
-                    <th>次数</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for item in account.failed_targets %}
-                  <tr>
-                    <td>{{ item.target }}</td>
-                    <td>{{ item.category or "-" }}</td>
-                    <td>{{ item.reason or "-" }}</td>
-                    <td>{{ item.attemptCount or 0 }}</td>
-                    <td>
-                      <form method="post" action="/accounts/{{ account.unique_id }}/retry-target">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                        <input type="hidden" name="target" value="{{ item.target }}">
-                        <button type="submit" class="soft-button retry-button">重试此目标</button>
-                      </form>
-                    </td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section class="data-card">
-          <div class="data-card__head">
-            <div class="data-card__title warning"><i>◔</i><span>C. 今日待发送</span></div>
-          </div>
-          <div class="table-shell data-card__table">
-            <table>
-              <thead>
-                <tr>
-                  <th>目标</th>
-                  <th>scheduledAt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in account.pending_targets[:5] %}
-                <tr>
-                  <td>{{ item.target }}</td>
-                  <td>{{ item.scheduledAt or "-" }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="2">今日暂无待发送目标</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="data-card__footer">
-            <button
-              type="button"
-              class="data-card__footer-button"
-              data-expand-target="pending-{{ loop.index0 }}"
-              data-total-label="查看全部（{{ account.pending_targets|length }}）"
-              {% if account.pending_targets|length <= 5 %}hidden{% endif %}
-            >查看全部（{{ account.pending_targets|length }}）</button>
-          </div>
-          <div class="data-card__extra" id="pending-{{ loop.index0 }}">
-            <div class="table-shell scrollable">
-              <table>
-                <thead>
-                  <tr>
-                    <th>目标</th>
-                    <th>scheduledAt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for item in account.pending_targets %}
-                  <tr>
-                    <td>{{ item.target }}</td>
-                    <td>{{ item.scheduledAt or "-" }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section class="data-card">
-          <div class="data-card__head">
-            <div class="data-card__title info"><i>◌</i><span>D. 今日未处理</span></div>
-          </div>
-          <div class="table-shell data-card__table">
-            <table>
-              <thead>
-                <tr>
-                  <th>目标</th>
-                  <th>scheduledAt</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in account.unprocessed_targets[:5] %}
-                <tr>
-                  <td>{{ item.target }}</td>
-                  <td>{{ item.scheduledAt or "-" }}</td>
-                </tr>
-                {% else %}
-                <tr><td colspan="2">今日暂无未处理目标</td></tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="data-card__footer">
-            <button
-              type="button"
-              class="data-card__footer-button"
-              data-expand-target="unprocessed-{{ loop.index0 }}"
-              data-total-label="查看全部（{{ account.unprocessed_targets|length }}）"
-              {% if account.unprocessed_targets|length <= 5 %}hidden{% endif %}
-            >查看全部（{{ account.unprocessed_targets|length }}）</button>
-          </div>
-          <div class="data-card__extra" id="unprocessed-{{ loop.index0 }}">
-            <div class="table-shell scrollable">
-              <table>
-                <thead>
-                  <tr>
-                    <th>目标</th>
-                    <th>scheduledAt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for item in account.unprocessed_targets %}
-                  <tr>
-                    <td>{{ item.target }}</td>
-                    <td>{{ item.scheduledAt or "-" }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        {% if account.account_blocked_targets %}
-        <section class="data-card">
-          <div class="data-card__head">
-            <div class="data-card__title warning"><i>!</i><span>E. 账号异常影响</span></div>
-          </div>
-          <div class="table-shell data-card__table">
-            <table>
-              <thead>
-                <tr>
-                  <th>目标</th>
-                  <th>scheduledAt</th>
-                  <th>说明</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for item in account.account_blocked_targets[:5] %}
-                <tr>
-                  <td>{{ item.target }}</td>
-                  <td>{{ item.scheduledAt or "-" }}</td>
-                  <td>{{ "本次账号异常重试目标" if item.accountFailureAffected else "因账号暂停尚未处理" }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <div class="data-card__footer">
-            <button
-              type="button"
-              class="data-card__footer-button"
-              data-expand-target="blocked-{{ loop.index0 }}"
-              data-total-label="查看全部（{{ account.account_blocked_targets|length }}）"
-              {% if account.account_blocked_targets|length <= 5 %}hidden{% endif %}
-            >查看全部（{{ account.account_blocked_targets|length }}）</button>
-          </div>
-          <div class="data-card__extra" id="blocked-{{ loop.index0 }}">
-            <div class="table-shell scrollable">
-              <table>
-                <thead>
-                  <tr>
-                    <th>目标</th>
-                    <th>scheduledAt</th>
-                    <th>说明</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for item in account.account_blocked_targets %}
-                  <tr>
-                    <td>{{ item.target }}</td>
-                    <td>{{ item.scheduledAt or "-" }}</td>
-                    <td>{{ "本次账号异常重试目标" if item.accountFailureAffected else "因账号暂停尚未处理" }}</td>
-                  </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-        {% endif %}
-      </div>
-    </article>
-    {% endfor %}
-  </section>
-
-  <div class="console-footer">
-    <span>共 {{ send_console.accounts|length }} 个启用账号 · 数据按今日发送状态实时汇总</span>
-  </div>
-  {% else %}
-  <div class="console-empty">当前没有启用账号，暂无可展示的发送控制台数据。</div>
-  {% endif %}
 </div>
-<script>
-  (() => {
-    document.querySelectorAll(".data-card__footer-button").forEach((button) => {
-      button.addEventListener("click", () => {
-        const targetId = button.dataset.expandTarget;
-        if (!targetId) return;
-        const panel = document.getElementById(targetId);
-        if (!panel) return;
-        const isOpen = panel.classList.toggle("is-open");
-        button.textContent = isOpen ? "收起" : (button.getAttribute("data-total-label") || "查看全部");
-      });
-    });
-  })();
-</script>
 {% endblock %}

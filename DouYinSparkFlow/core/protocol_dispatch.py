@@ -64,6 +64,85 @@ def _account_identity_key(account):
     return ""
 
 
+def _coerce_attempt_count(entry):
+    try:
+        return max(0, int(dict(entry or {}).get("attemptCount") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _protocol_failure_category(entry):
+    status_name = str(entry.get("statusName") or "").strip()
+    status_code = entry.get("statusCode")
+    if status_name == "CheckMessageNotPass" or status_code == 3:
+        return "protocol_check_message_not_pass"
+    if status_name == "CheckMessageNotPassButSelfVisible" or status_code == 4:
+        return "protocol_check_message_self_visible"
+    if status_name == "UserNotInConversation" or status_code == 1:
+        return "protocol_user_not_in_conversation"
+    if status_name == "CheckConversationNotPass" or status_code == 2:
+        return "protocol_check_conversation_not_pass"
+    if status_name == "UserHasBeenBlock" or status_code == 5:
+        return "protocol_user_blocked"
+    return "protocol_send_failed"
+
+
+def _protocol_failure_reason(entry):
+    bits = [
+        f"statusCode={entry.get('statusCode')}",
+        f"statusName={entry.get('statusName') or ''}",
+        f"statusMsg={entry.get('statusMsg') or ''}",
+    ]
+    summary = entry.get("sendResultSummary") or {}
+    raw_keys = summary.get("rawKeys") or []
+    if raw_keys:
+        bits.append(f"rawKeys={','.join(map(str, raw_keys))}")
+    return " ".join(bits)
+
+
+def _persist_protocol_account_failure(account, category, reason, affected_targets=None):
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    all_accounts = get_userData(force_reload=True)
+    accounts_by_identity = {
+        identity: item
+        for item in all_accounts
+        for identity in [_account_identity_key(item)]
+        if identity
+    }
+    target_account = accounts_by_identity.get(_account_identity_key(account))
+    if not target_account:
+        return
+
+    affected_targets = list(affected_targets or [])
+    existing_entry = dict(target_account.get("account_failure") or {})
+    target_account["account_failure"] = {
+        "category": category,
+        "reason": reason,
+        "firstAttemptAt": existing_entry.get("firstAttemptAt") or now_iso,
+        "lastAttemptAt": now_iso,
+        "attemptCount": _coerce_attempt_count(existing_entry) + 1,
+        "lastRunMode": "protocol",
+        "affectedTargets": affected_targets,
+    }
+    save_userData(all_accounts)
+
+
+def _record_protocol_target_failure(target_account, target_name, message, category, reason):
+    now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    queue = dict(target_account.get("failure_queue") or {})
+    existing_entry = dict(queue.get(target_name) or {})
+    queue[target_name] = {
+        "category": category,
+        "reason": reason,
+        "message": message,
+        "firstAttemptAt": existing_entry.get("firstAttemptAt") or now_iso,
+        "lastAttemptAt": now_iso,
+        "attemptCount": _coerce_attempt_count(existing_entry) + 1,
+        "lastRunMode": "protocol",
+    }
+    target_account["failure_queue"] = queue
+
+
 def _merge_protocol_runtime_state(accounts, result_by_username):
     changed = False
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -108,6 +187,35 @@ def _merge_protocol_runtime_state(accounts, result_by_username):
 
         if history:
             target_account["message_history"] = history
+
+        for entry in result.get("sent", []):
+            if entry.get("dryRun") or entry.get("success", True):
+                continue
+            target = str(entry.get("target", "")).strip()
+            if not target:
+                continue
+            _record_protocol_target_failure(
+                target_account,
+                target,
+                str(entry.get("message", "")).strip(),
+                _protocol_failure_category(entry),
+                _protocol_failure_reason(entry),
+            )
+            changed = True
+
+        unresolved = result.get("unresolved", []) or []
+        for entry in unresolved:
+            target = str(entry.get("target", "")).strip()
+            if not target:
+                continue
+            _record_protocol_target_failure(
+                target_account,
+                target,
+                "",
+                str(entry.get("reason") or "protocol_unresolved"),
+                str(entry.get("reason") or "protocol could not resolve target"),
+            )
+            changed = True
 
     if changed:
         save_userData(all_accounts)
@@ -243,12 +351,24 @@ async def run_protocol_tasks(config, accounts, message_builder):
                 dry_run,
                 send_strategy,
             )
+            sent_entries = result.get("sent", [])
+            succeeded_count = len([
+                entry for entry in sent_entries
+                if not entry.get("dryRun") and entry.get("success", True)
+            ])
+            failed_count = len([
+                entry for entry in sent_entries
+                if not entry.get("dryRun") and not entry.get("success", True)
+            ])
             logger.info(
-                "Protocol sender finished for %s resolved=%s unresolved=%s sent=%s",
+                "Protocol sender finished for %s resolved=%s unresolved=%s attempted=%s succeeded=%s failed=%s dryRun=%s",
                 user.get("username", "unknown"),
                 len(result.get("resolved", [])),
                 len(result.get("unresolved", [])),
-                len(result.get("sent", [])),
+                len(sent_entries),
+                succeeded_count,
+                failed_count,
+                bool(result.get("dryRun")),
             )
             return result
 
@@ -258,8 +378,15 @@ async def run_protocol_tasks(config, accounts, message_builder):
     failures = []
     for user, item in zip(accounts, gathered):
         if isinstance(item, Exception):
-            failures.append(str(item))
+            reason = str(item)
+            failures.append(reason)
             logger.error("Protocol sender failed for %s: %s", user.get("username", "unknown"), item)
+            _persist_protocol_account_failure(
+                user,
+                "protocol_sender_failed",
+                reason,
+                user.get("targets", []),
+            )
             continue
         result_by_username[user.get("username")] = item
         unresolved = item.get("unresolved", [])
