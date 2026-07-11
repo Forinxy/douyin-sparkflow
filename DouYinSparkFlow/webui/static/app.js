@@ -383,7 +383,7 @@
     }
   };
 
-  const refreshLoginQr = async (delay = 0) => {
+  const refreshLoginQr = async (delay = 0, retries = 8) => {
     if (!qrImage) return;
     window.clearTimeout(qrRefreshTimer);
     qrRefreshTimer = window.setTimeout(async () => {
@@ -401,7 +401,12 @@
         if (previous) URL.revokeObjectURL(previous);
         if (qrStatus) qrStatus.textContent = "二维码已加载。如果过期，点击刷新。";
       } catch {
-        if (qrStatus) qrStatus.textContent = "二维码还未准备好，请稍后刷新。";
+        if (retries > 1) {
+          if (qrStatus) qrStatus.textContent = "登录页正在加载，继续等待二维码...";
+          refreshLoginQr(1400, retries - 1);
+        } else if (qrStatus) {
+          qrStatus.textContent = "二维码还未准备好，请点击刷新重试。";
+        }
       }
     }, delay);
   };
