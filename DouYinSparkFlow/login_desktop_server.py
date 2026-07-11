@@ -275,16 +275,42 @@ class LoginDesktopManager:
             page = await self._get_active_page()
             await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
 
-        await page.locator('img[class*="qrcode"]').first.wait_for(state="visible", timeout=30000)
+        deadline = asyncio.get_running_loop().time() + 45
+        logged_in = False
+        qr_ready = False
+        while asyncio.get_running_loop().time() < deadline:
+            qr = page.locator('img[class*="qrcode"]').first
+            try:
+                if await qr.count() and await qr.is_visible():
+                    qr_ready = True
+                    break
+            except Exception:
+                pass
+
+            if "/creator-micro/" in page.url:
+                logged_in = True
+                break
+            try:
+                await collect_login_result(page, self.context, timeout_ms=800)
+                logged_in = True
+                break
+            except Exception:
+                pass
+            await asyncio.sleep(0.75)
+
+        if not qr_ready and not logged_in:
+            raise RuntimeError("Douyin login page did not expose a QR code or a logged-in session")
+
         await self.reduce_page_activity(page)
-        try:
-            await page.wait_for_function(
-                "() => !/\u4e8c\u7ef4\u7801\u5931\u6548|\u4e8c\u7ef4\u7801\u8fc7\u671f/.test(document.body?.innerText || '')",
-                timeout=30000,
-            )
-        except Exception:
-            pass
-        return {"ok": True, "url": page.url}
+        if qr_ready:
+            try:
+                await page.wait_for_function(
+                    "() => !/\u4e8c\u7ef4\u7801\u5931\u6548|\u4e8c\u7ef4\u7801\u8fc7\u671f/.test(document.body?.innerText || '')",
+                    timeout=30000,
+                )
+            except Exception:
+                pass
+        return {"ok": True, "url": page.url, "logged_in": logged_in, "qr_ready": qr_ready}
 
     async def export(self):
         self.mark_activity()

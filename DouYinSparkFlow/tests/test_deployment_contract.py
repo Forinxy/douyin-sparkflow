@@ -122,6 +122,8 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("start_idle_monitor", server)
         self.assertIn("schedule_stop_after_export", server)
         self.assertIn('reduced_motion="reduce"', server)
+        self.assertIn('"/creator-micro/" in page.url', server)
+        self.assertIn('"qr_ready": qr_ready', server)
 
     def test_login_desktop_exposes_cropped_qr_endpoint(self):
         server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
