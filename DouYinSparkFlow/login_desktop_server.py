@@ -1,6 +1,7 @@
 import asyncio
 import os
 import shutil
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -176,13 +177,27 @@ class LoginDesktopManager:
         }
 
     async def open_login(self):
+        await self.refresh_login_qr()
+
+    async def refresh_login_qr(self):
+        refresh_url = f"{REMOTE_LOGIN_URL}?qr_refresh={int(time.time() * 1000)}"
         try:
             page = await self._get_active_page()
-            await page.goto(REMOTE_LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
         except Exception:
             await self.reset()
             page = await self._get_active_page()
-            await page.goto(REMOTE_LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
+
+        await page.locator('img[class*="qrcode"]').first.wait_for(state="visible", timeout=30000)
+        try:
+            await page.wait_for_function(
+                "() => !/\u4e8c\u7ef4\u7801\u5931\u6548|\u4e8c\u7ef4\u7801\u8fc7\u671f/.test(document.body?.innerText || '')",
+                timeout=30000,
+            )
+        except Exception:
+            pass
+        return {"ok": True, "url": page.url}
 
     async def export(self):
         page = await self._get_active_page()
@@ -319,6 +334,11 @@ async def reset():
     return {"ok": True}
 
 
+@app.post("/refresh-qr")
+async def refresh_qr():
+    return await manager.refresh_login_qr()
+
+
 @app.post("/export")
 async def export():
     page = await manager._get_active_page()
@@ -335,6 +355,9 @@ async def export():
 @app.get("/qr")
 async def login_qr():
     page = await manager._get_active_page()
+    expired = await page.locator('[class*="qrcode_expired"]').count()
+    if expired and await page.locator('[class*="qrcode_expired"]').first.is_visible():
+        raise HTTPException(status_code=409, detail="login QR code has expired")
     selectors = (
         'img[class*="qrcode"]',
         'img[src^="data:image/png;base64"]',

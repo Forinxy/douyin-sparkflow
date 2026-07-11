@@ -114,7 +114,10 @@ class DeploymentContractTests(unittest.TestCase):
     def test_login_desktop_exposes_cropped_qr_endpoint(self):
         server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/qr")', server)
+        self.assertIn('@app.post("/refresh-qr")', server)
+        self.assertIn("qr_refresh=", server)
         self.assertIn('img[class*="qrcode"]', server)
+        self.assertIn('qrcode_expired', server)
         self.assertIn('Cache-Control": "no-store, max-age=0', server)
 
     def test_legacy_unused_entrypoints_are_removed(self):

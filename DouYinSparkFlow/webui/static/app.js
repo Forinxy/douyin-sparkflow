@@ -462,7 +462,18 @@
   });
 
   document.querySelectorAll("[data-refresh-login-qr]").forEach((button) => {
-    button.addEventListener("click", () => refreshLoginQr());
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      if (qrStatus) qrStatus.textContent = "正在让抖音重新生成二维码...";
+      try {
+        await postForm("/login-desktop/qr/refresh");
+        refreshLoginQr(900);
+      } catch (error) {
+        if (qrStatus) qrStatus.textContent = `刷新二维码失败：${error.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
   });
 
   document.querySelectorAll(".login-desktop-save").forEach((button) => {

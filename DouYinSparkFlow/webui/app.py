@@ -1014,10 +1014,24 @@ def create_app():
                 headers={"Cache-Control": "no-store, max-age=0"},
             )
         except urllib.error.HTTPError as exc:
-            status = 404 if exc.code == 404 else 502
+            status = exc.code if exc.code in {404, 409} else 502
             return PlainTextResponse("login QR code is not ready", status_code=status)
         except (urllib.error.URLError, TimeoutError):
             return PlainTextResponse("login QR service is unavailable", status_code=502)
+
+    @app.post("/login-desktop/qr/refresh")
+    async def login_desktop_qr_refresh(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return JSONResponse({"redirect": "/login"}, status_code=401)
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return JSONResponse({"ok": False, "error": "Invalid CSRF token"}, status_code=403)
+        try:
+            payload = call_login_desktop("/refresh-qr", method="POST", payload={}, timeout=90)
+            return JSONResponse({"ok": True, "result": payload})
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
 
     @app.get("/login-desktop/status")
     async def login_desktop_status(request: Request):

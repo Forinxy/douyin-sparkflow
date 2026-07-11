@@ -195,6 +195,7 @@ class WebUiSafetyTests(unittest.TestCase):
         self.assertLess(block.index("window.open(publicUrl"), block.index('await postForm("/login-desktop/open")'))
         self.assertIn("refreshLoginQr(1800)", block)
         self.assertIn("retries - 1", script)
+        self.assertIn('/login-desktop/qr/refresh', script)
 
     def test_schedule_sync_writes_configured_window_to_shared_spool(self):
         with tempfile.TemporaryDirectory() as temp_dir:
