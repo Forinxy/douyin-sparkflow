@@ -49,6 +49,15 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list \
     && node --version \
     && rm -rf /var/lib/apt/lists/*
 
+# Build proxies must never leak into the runtime container. Compose injects
+# service-addressable runtime proxies explicitly.
+ENV HTTP_PROXY= \
+    HTTPS_PROXY= \
+    ALL_PROXY= \
+    http_proxy= \
+    https_proxy= \
+    all_proxy=
+
 COPY . .
 
 CMD ["python", "main.py", "--doTask"]

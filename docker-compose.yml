@@ -41,7 +41,11 @@ services:
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
+      http_proxy: http://proxy:7890
+      https_proxy: http://proxy:7890
+      all_proxy: socks5://proxy:7890
       NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
+      no_proxy: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
       SPARKFLOW_LOGIN_DESKTOP_API_URL: http://login-desktop:18090
       LOGIN_DESKTOP_PUBLIC_PORT: ${LOGIN_DESKTOP_WEB_PORT:-8788}
       SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL: ${LOGIN_DESKTOP_PUBLIC_URL:-/login-desktop/proxy/vnc.html?autoconnect=1&resize=scale&view_only=0&path=login-desktop/proxy/websockify}
@@ -72,7 +76,11 @@ services:
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
+      http_proxy: http://proxy:7890
+      https_proxy: http://proxy:7890
+      all_proxy: socks5://proxy:7890
       NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
+      no_proxy: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     ports:
       - "${LOGIN_DESKTOP_BIND_ADDRESS:-127.0.0.1}:${LOGIN_DESKTOP_WEB_PORT:-8788}:6080"
     command: bash /app/scripts/start_login_desktop.sh
@@ -93,7 +101,11 @@ services:
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
+      http_proxy: http://proxy:7890
+      https_proxy: http://proxy:7890
+      all_proxy: socks5://proxy:7890
       NO_PROXY: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
+      no_proxy: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     command: python /app/scripts/cron_runner.py /host-spool-cron/root
     volumes:
       - ./DouYinSparkFlow:/app
@@ -113,7 +125,11 @@ services:
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
+      http_proxy: http://proxy:7890
+      https_proxy: http://proxy:7890
+      all_proxy: socks5://proxy:7890
       NO_PROXY: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
+      no_proxy: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     command: python main.py --doTask
     volumes:
       - ./DouYinSparkFlow:/app

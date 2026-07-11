@@ -64,6 +64,15 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertEqual(len(lines), 1)
         self.assertTrue(lines[0].startswith("*/20 "))
 
+    def test_build_proxy_does_not_leak_into_runtime_and_runtime_proxy_is_explicit(self):
+        dockerfile = (SOURCE_ROOT / "Dockerfile.server").read_text(encoding="utf-8")
+        compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("# Build proxies must never leak", dockerfile)
+        self.assertIn("http_proxy=", dockerfile)
+        self.assertGreaterEqual(compose.count("http_proxy: http://proxy:7890"), 4)
+        self.assertGreaterEqual(compose.count("https_proxy: http://proxy:7890"), 4)
+        self.assertGreaterEqual(compose.count("no_proxy:"), 4)
+
     def test_sensitive_ports_bind_to_loopback_by_default(self):
         text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("${PROXY_BIND_ADDRESS:-127.0.0.1}:${PROXY_HTTP_PORT:-7890}:7890", text)

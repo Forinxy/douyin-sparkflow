@@ -2,6 +2,8 @@
 
 ## 2026-07-11
 
+- Fixed a blank Douyin login desktop by preventing build-time localhost proxy variables from leaking into runtime Chromium and explicitly wiring lowercase/uppercase runtime proxy variables.
+
 - Added an authenticated same-origin noVNC HTTP/WebSocket proxy and synchronous mobile popup handling so login tasks work from phones without exposing port 8788 publicly.
 
 - Fixed the server image to provision Node.js 22 explicitly for protocol mode and excluded runtime logs/configuration from the Docker build context.
