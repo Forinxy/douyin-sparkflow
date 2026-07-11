@@ -44,7 +44,9 @@ services:
       NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
       SPARKFLOW_LOGIN_DESKTOP_API_URL: http://login-desktop:18090
       LOGIN_DESKTOP_PUBLIC_PORT: ${LOGIN_DESKTOP_WEB_PORT:-8788}
-      SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL: ${LOGIN_DESKTOP_PUBLIC_URL:-http://127.0.0.1:8788/vnc.html?autoconnect=1&resize=scale&view_only=0}
+      SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL: ${LOGIN_DESKTOP_PUBLIC_URL:-/login-desktop/proxy/vnc.html?autoconnect=1&resize=scale&view_only=0&path=login-desktop/proxy/websockify}
+      SPARKFLOW_LOGIN_DESKTOP_NOVNC_URL: http://login-desktop:6080
+      SPARKFLOW_LOGIN_DESKTOP_NOVNC_WS_URL: ws://login-desktop:6080/websockify
       SPARKFLOW_SESSION_COOKIE_SECURE: ${SPARKFLOW_SESSION_COOKIE_SECURE:-0}
     ports:
       - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-8787}:8787"

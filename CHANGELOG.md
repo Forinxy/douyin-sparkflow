@@ -2,6 +2,8 @@
 
 ## 2026-07-11
 
+- Added an authenticated same-origin noVNC HTTP/WebSocket proxy and synchronous mobile popup handling so login tasks work from phones without exposing port 8788 publicly.
+
 - Fixed the server image to provision Node.js 22 explicitly for protocol mode and excluded runtime logs/configuration from the Docker build context.
 
 - Reworked the Web console into a responsive unified operations dashboard with local Lucide icons, clearer account/target status, and safer confirmation dialogs.

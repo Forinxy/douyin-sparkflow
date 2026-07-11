@@ -409,13 +409,22 @@
 
   document.querySelectorAll(".login-desktop-open").forEach((button) => {
     button.addEventListener("click", async () => {
+      // Mobile browsers block window.open after an awaited request. Open the
+      // authenticated same-origin workspace while the click gesture is active.
+      const popup = publicUrl
+        ? window.open(publicUrl, "_blank", "noopener")
+        : null;
       try {
         await postForm("/login-desktop/open");
         loadFrame();
-        window.open(publicUrl, "_blank", "noopener");
-        setStatus("请在登录工作区完成登录，然后保存登录态。");
+        if (!popup && frame) {
+          frame.scrollIntoView({ behavior: "smooth", block: "start" });
+          setStatus("???????????????????????");
+        } else {
+          setStatus("????????????????????????");
+        }
       } catch (error) {
-        setStatus(`打开登录工作区失败：${error.message}`, "danger");
+        setStatus(`??????????${error.message}`, "danger");
       }
     });
   });

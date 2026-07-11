@@ -221,7 +221,7 @@ WEB_PORT=8787
 # noVNC 默认仅允许本机或 SSH 隧道访问
 LOGIN_DESKTOP_BIND_ADDRESS=127.0.0.1
 LOGIN_DESKTOP_WEB_PORT=8788
-LOGIN_DESKTOP_PUBLIC_URL=http://127.0.0.1:8788/vnc.html?autoconnect=1&resize=scale&view_only=0
+LOGIN_DESKTOP_PUBLIC_URL=/login-desktop/proxy/vnc.html?autoconnect=1&resize=scale&view_only=0&path=login-desktop/proxy/websockify
 
 # Mihomo 代理和控制端口默认仅绑定本机
 PROXY_BIND_ADDRESS=127.0.0.1

@@ -76,6 +76,8 @@ class DeploymentContractTests(unittest.TestCase):
         text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("SPARKFLOW_LOGIN_DESKTOP_API_URL: http://login-desktop:18090", text)
         self.assertIn("SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL", text)
+        self.assertIn("/login-desktop/proxy/vnc.html", text)
+        self.assertIn("SPARKFLOW_LOGIN_DESKTOP_NOVNC_WS_URL", text)
 
     def test_installers_preserve_runtime_config_and_do_not_require_bash_on_windows(self):
         server = (REPO_ROOT / "deploy" / "install-server.sh").read_text(encoding="utf-8")

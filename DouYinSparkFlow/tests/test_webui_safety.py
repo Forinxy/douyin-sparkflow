@@ -1,4 +1,4 @@
-import errno
+﻿import errno
 import os
 import tempfile
 import time
@@ -121,6 +121,54 @@ class WebUiSafetyTests(unittest.TestCase):
                 "http://127.0.0.1:8788/vnc.html",
                 app_module.login_desktop_public_url(request),
             )
+
+    def test_login_desktop_defaults_to_authenticated_same_origin_proxy(self):
+        request = type("Request", (), {"url": type("Url", (), {"hostname": "example", "scheme": "https"})()})()
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL": "",
+                },
+                clear=False,
+            ),
+            patch.object(app_module, "get_app_settings", return_value={}),
+        ):
+            url = app_module.login_desktop_public_url(request)
+
+        self.assertTrue(url.startswith("/login-desktop/proxy/vnc.html?"))
+        self.assertIn("path=login-desktop/proxy/websockify", url)
+
+    def test_login_desktop_http_proxy_requires_auth_and_forwards_assets(self):
+        client = TestClient(app_module.app)
+        unauthenticated = client.get(
+            "/login-desktop/proxy/vnc.html",
+            follow_redirects=False,
+        )
+        self.assertEqual(303, unauthenticated.status_code)
+        self.assertEqual("/login", unauthenticated.headers["location"])
+
+        with (
+            patch.object(app_module, "current_user", return_value="admin"),
+            patch.object(
+                app_module,
+                "fetch_login_desktop_asset",
+                return_value=(200, {"Content-Type": "text/html"}, b"<html>noVNC</html>"),
+            ) as fetch_asset,
+        ):
+            response = client.get("/login-desktop/proxy/vnc.html?autoconnect=1")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("text/html", response.headers["content-type"])
+        self.assertIn("noVNC", response.text)
+        fetch_asset.assert_called_once_with("vnc.html", "autoconnect=1")
+
+    def test_mobile_login_popup_opens_before_async_request(self):
+        script = (Path(app_module.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
+        block_start = script.index('document.querySelectorAll(".login-desktop-open")')
+        block_end = script.index('document.querySelectorAll(".login-desktop-save")', block_start)
+        block = script[block_start:block_end]
+        self.assertLess(block.index("window.open(publicUrl"), block.index('await postForm("/login-desktop/open")'))
 
     def test_schedule_sync_writes_configured_window_to_shared_spool(self):
         with tempfile.TemporaryDirectory() as temp_dir:

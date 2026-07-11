@@ -1610,6 +1610,21 @@ textarea {
     flex-direction: column;
   }
 
+  .login-actions .button-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .login-actions .button-row .button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .desktop-frame {
+    aspect-ratio: auto;
+    min-height: 68vh;
+  }
+
   .overview-strip,
   .metric-grid {
     grid-template-columns: 1fr;

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -5,10 +6,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, Request
+import websockets
+from websockets.exceptions import ConnectionClosed
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -207,10 +211,37 @@ def login_desktop_public_url(request: Request) -> str:
     if configured_url:
         return configured_url
 
-    host = request.url.hostname or "127.0.0.1"
-    scheme = str(settings.get("login_desktop_public_scheme") or "http").strip() or "http"
-    port = coerce_int(settings.get("login_desktop_public_port"), 8788, minimum=1)
-    return f"{scheme}://{host}:{port}/vnc.html?autoconnect=1&resize=scale&view_only=0"
+    return (
+        "/login-desktop/proxy/vnc.html"
+        "?autoconnect=1&resize=scale&view_only=0"
+        "&path=login-desktop/proxy/websockify"
+    )
+
+
+def login_desktop_novnc_http_url() -> str:
+    return str(os.getenv("SPARKFLOW_LOGIN_DESKTOP_NOVNC_URL") or "http://login-desktop:6080").rstrip("/")
+
+
+def login_desktop_novnc_ws_url() -> str:
+    return str(os.getenv("SPARKFLOW_LOGIN_DESKTOP_NOVNC_WS_URL") or "ws://login-desktop:6080/websockify")
+
+
+def fetch_login_desktop_asset(asset_path: str, query: str = ""):
+    safe_path = quote(str(asset_path or "vnc.html").lstrip("/"), safe="/._-")
+    url = f"{login_desktop_novnc_http_url()}/{safe_path}"
+    if query:
+        url = f"{url}?{query}"
+    upstream_request = urllib.request.Request(url, method="GET")
+    try:
+        with urllib.request.urlopen(upstream_request, timeout=20) as upstream:
+            headers = {
+                key: value
+                for key, value in upstream.headers.items()
+                if key.lower() in {"content-type", "content-encoding", "cache-control", "etag", "last-modified"}
+            }
+            return upstream.status, headers, upstream.read()
+    except (urllib.error.URLError, TimeoutError) as exc:
+        raise RuntimeError(f"login-desktop noVNC proxy failed: {exc}") from exc
 
 
 def call_login_desktop(path: str, *, method: str = "GET", payload: dict | None = None, timeout: int = 20) -> dict:
@@ -887,6 +918,84 @@ def create_app():
                 "log_tail": read_log_tail(400),
             },
         )
+
+    @app.get("/login-desktop/proxy")
+    async def login_desktop_proxy_root(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+        return RedirectResponse(login_desktop_public_url(request), status_code=307)
+
+    @app.get("/login-desktop/proxy/{asset_path:path}")
+    async def login_desktop_proxy_asset(request: Request, asset_path: str):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+        try:
+            status, headers, content = await asyncio.to_thread(
+                fetch_login_desktop_asset,
+                asset_path,
+                request.url.query,
+            )
+            return Response(content=content, status_code=status, headers=headers)
+        except RuntimeError as exc:
+            return PlainTextResponse(str(exc), status_code=502)
+
+    @app.websocket("/login-desktop/proxy/websockify")
+    async def login_desktop_proxy_websocket(websocket: WebSocket):
+        if not current_user(websocket):
+            await websocket.close(code=4401)
+            return
+
+        requested_protocols = [
+            item.strip()
+            for item in websocket.headers.get("sec-websocket-protocol", "").split(",")
+            if item.strip()
+        ]
+        accepted = False
+        try:
+            async with websockets.connect(
+                login_desktop_novnc_ws_url(),
+                subprotocols=requested_protocols or None,
+                open_timeout=10,
+                close_timeout=5,
+            ) as upstream:
+                await websocket.accept(subprotocol=upstream.subprotocol)
+                accepted = True
+
+                async def client_to_upstream():
+                    while True:
+                        message = await websocket.receive()
+                        if message["type"] == "websocket.disconnect":
+                            return
+                        if message.get("bytes") is not None:
+                            await upstream.send(message["bytes"])
+                        elif message.get("text") is not None:
+                            await upstream.send(message["text"])
+
+                async def upstream_to_client():
+                    async for message in upstream:
+                        if isinstance(message, bytes):
+                            await websocket.send_bytes(message)
+                        else:
+                            await websocket.send_text(message)
+
+                relays = {
+                    asyncio.create_task(client_to_upstream()),
+                    asyncio.create_task(upstream_to_client()),
+                }
+                done, pending = await asyncio.wait(relays, return_when=asyncio.FIRST_COMPLETED)
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                for task in done:
+                    task.result()
+        except (ConnectionClosed, WebSocketDisconnect):
+            pass
+        except Exception as exc:
+            logger.warning("login desktop WebSocket proxy failed: %s", exc)
+            if not accepted:
+                await websocket.close(code=1011)
 
     @app.get("/login-desktop/status")
     async def login_desktop_status(request: Request):
