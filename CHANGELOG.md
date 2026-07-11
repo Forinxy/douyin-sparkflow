@@ -2,6 +2,8 @@
 
 ## 2026-07-11
 
+- Reduced login-desktop resource spikes with lazy Chromium startup, idle/after-export shutdown, status caching, reduced-motion page styling, lower-frequency x11vnc polling, and Compose CPU/memory/PID limits.
+
 - Changed QR refresh from re-reading an expired image to forcing the Douyin login page to generate a new cache-busted QR code, and stopped serving expired QR screenshots.
 
 - Fixed a blank Douyin login desktop by preventing build-time localhost proxy variables from leaking into runtime Chromium and explicitly wiring lowercase/uppercase runtime proxy variables.

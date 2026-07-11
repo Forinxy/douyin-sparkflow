@@ -14,6 +14,9 @@ from core.login import collect_login_result
 REMOTE_LOGIN_URL = "https://creator.douyin.com/"
 WWW_SELF_URL = "https://www.douyin.com/user/self"
 PROFILE_DIR = Path("/data/login-profile")
+IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS", "1800")))
+STOP_AFTER_EXPORT_SECONDS = max(0, int(os.getenv("LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS", "60")))
+STATUS_CACHE_SECONDS = max(1, int(os.getenv("LOGIN_DESKTOP_STATUS_CACHE_SECONDS", "15")))
 GENERIC_WWW_NAMES = {
     "",
     "我的",
@@ -43,8 +46,74 @@ class LoginDesktopManager:
         self.playwright = None
         self.context = None
         self.page = None
+        self._last_activity = time.monotonic()
+        self._status_cache = None
+        self._status_checked_at = 0.0
+        self._idle_monitor_task = None
+        self._scheduled_stop_task = None
+
+    def mark_activity(self):
+        self._last_activity = time.monotonic()
+        self._status_cache = None
+        self._status_checked_at = 0.0
+        if self._scheduled_stop_task and not self._scheduled_stop_task.done():
+            self._scheduled_stop_task.cancel()
+        self._scheduled_stop_task = None
+
+    async def start_idle_monitor(self):
+        if self._idle_monitor_task and not self._idle_monitor_task.done():
+            return
+        self._idle_monitor_task = asyncio.create_task(self._idle_monitor())
+
+    async def stop_idle_monitor(self):
+        if self._idle_monitor_task and not self._idle_monitor_task.done():
+            self._idle_monitor_task.cancel()
+            await asyncio.gather(self._idle_monitor_task, return_exceptions=True)
+        self._idle_monitor_task = None
+        if self._scheduled_stop_task and not self._scheduled_stop_task.done():
+            self._scheduled_stop_task.cancel()
+            await asyncio.gather(self._scheduled_stop_task, return_exceptions=True)
+        self._scheduled_stop_task = None
+
+    async def _idle_monitor(self):
+        while True:
+            await asyncio.sleep(60)
+            if self.context and time.monotonic() - self._last_activity >= IDLE_TIMEOUT_SECONDS:
+                await self.stop(clear_profile=False)
+
+    def schedule_stop_after_export(self):
+        if STOP_AFTER_EXPORT_SECONDS <= 0:
+            return
+        if self._scheduled_stop_task and not self._scheduled_stop_task.done():
+            self._scheduled_stop_task.cancel()
+
+        async def stop_later():
+            await asyncio.sleep(STOP_AFTER_EXPORT_SECONDS)
+            await self.stop(clear_profile=False)
+
+        self._scheduled_stop_task = asyncio.create_task(stop_later())
+
+    async def reduce_page_activity(self, page):
+        try:
+            await page.emulate_media(reduced_motion="reduce")
+            await page.add_style_tag(
+                content="""
+                *, *::before, *::after {
+                  animation-duration: 0s !important;
+                  animation-iteration-count: 1 !important;
+                  transition-duration: 0s !important;
+                  scroll-behavior: auto !important;
+                }
+                video, canvas[class*="main-animation"] {
+                  visibility: hidden !important;
+                }
+                """
+            )
+        except Exception:
+            pass
 
     async def start(self):
+        self.mark_activity()
         async with self._lock:
             if self.context and not self._context_is_closed():
                 return
@@ -110,8 +179,11 @@ class LoginDesktopManager:
                 self.playwright = None
             if clear_profile and PROFILE_DIR.exists():
                 shutil.rmtree(PROFILE_DIR, ignore_errors=True)
+            self._status_cache = None
+            self._status_checked_at = 0.0
 
     async def reset(self):
+        self.mark_activity()
         await self.stop(clear_profile=True)
         await self.start()
 
@@ -120,13 +192,17 @@ class LoginDesktopManager:
             await self.start()
 
     async def status(self):
+        now = time.monotonic()
+        if self._status_cache is not None and now - self._status_checked_at < STATUS_CACHE_SECONDS:
+            return dict(self._status_cache)
+
         logged_in = False
         username = ""
         unique_id = ""
         current_url = ""
 
         if not self.context or self._context_is_closed():
-            return {
+            payload = {
                 "running": False,
                 "logged_in": False,
                 "username": "",
@@ -134,6 +210,9 @@ class LoginDesktopManager:
                 "current_url": "",
                 "profile_dir": str(PROFILE_DIR),
             }
+            self._status_cache = payload
+            self._status_checked_at = now
+            return dict(payload)
 
         page = None
         try:
@@ -148,7 +227,7 @@ class LoginDesktopManager:
         except Exception:
             self.page = None
             self.context = None
-            return {
+            payload = {
                 "running": False,
                 "logged_in": False,
                 "username": "",
@@ -156,6 +235,9 @@ class LoginDesktopManager:
                 "current_url": "",
                 "profile_dir": str(PROFILE_DIR),
             }
+            self._status_cache = payload
+            self._status_checked_at = now
+            return dict(payload)
 
         if page:
             current_url = page.url
@@ -167,7 +249,7 @@ class LoginDesktopManager:
             except Exception:
                 pass
 
-        return {
+        payload = {
             "running": True,
             "logged_in": logged_in,
             "username": username,
@@ -175,11 +257,15 @@ class LoginDesktopManager:
             "current_url": current_url,
             "profile_dir": str(PROFILE_DIR),
         }
+        self._status_cache = payload
+        self._status_checked_at = now
+        return dict(payload)
 
     async def open_login(self):
         await self.refresh_login_qr()
 
     async def refresh_login_qr(self):
+        self.mark_activity()
         refresh_url = f"{REMOTE_LOGIN_URL}?qr_refresh={int(time.time() * 1000)}"
         try:
             page = await self._get_active_page()
@@ -190,6 +276,7 @@ class LoginDesktopManager:
             await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
 
         await page.locator('img[class*="qrcode"]').first.wait_for(state="visible", timeout=30000)
+        await self.reduce_page_activity(page)
         try:
             await page.wait_for_function(
                 "() => !/\u4e8c\u7ef4\u7801\u5931\u6548|\u4e8c\u7ef4\u7801\u8fc7\u671f/.test(document.body?.innerText || '')",
@@ -200,8 +287,10 @@ class LoginDesktopManager:
         return {"ok": True, "url": page.url}
 
     async def export(self):
+        self.mark_activity()
         page = await self._get_active_page()
         result = await collect_login_result(page, self.context, timeout_ms=5000)
+        self.schedule_stop_after_export()
         return result
 
 
@@ -304,11 +393,12 @@ app = FastAPI(title="Douyin Login Desktop")
 
 @app.on_event("startup")
 async def startup():
-    await manager.start()
+    await manager.start_idle_monitor()
 
 
 @app.on_event("shutdown")
 async def shutdown():
+    await manager.stop_idle_monitor()
     await manager.stop(clear_profile=False)
 
 

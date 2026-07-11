@@ -111,6 +111,18 @@ class DeploymentContractTests(unittest.TestCase):
         for entry in ("logs/", "config.json", "usersData.json", "webui_settings.json"):
             self.assertIn(entry, dockerignore)
 
+    def test_login_desktop_resource_controls_are_configured(self):
+        compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        start_script = (SOURCE_ROOT / "scripts" / "start_login_desktop.sh").read_text(encoding="utf-8")
+        server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
+        self.assertIn("cpus: ${LOGIN_DESKTOP_CPUS:-1.0}", compose)
+        self.assertIn("mem_limit: ${LOGIN_DESKTOP_MEMORY_LIMIT:-1200m}", compose)
+        self.assertIn("pids_limit: ${LOGIN_DESKTOP_PIDS_LIMIT:-256}", compose)
+        self.assertIn("-nap -wait 50 -defer 50", start_script)
+        self.assertIn("start_idle_monitor", server)
+        self.assertIn("schedule_stop_after_export", server)
+        self.assertIn('reduced_motion="reduce"', server)
+
     def test_login_desktop_exposes_cropped_qr_endpoint(self):
         server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/qr")', server)

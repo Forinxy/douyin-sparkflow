@@ -41,7 +41,7 @@ for _ in $(seq 1 30); do
 done
 
 fluxbox > /app/logs/login_desktop/fluxbox.log 2>&1 &
-run_forever x11vnc x11vnc -display "${DISPLAY}" -forever -shared -rfbport "${LOGIN_DESKTOP_VNC_PORT}" -localhost -nopw &
+run_forever x11vnc x11vnc -display "${DISPLAY}" -forever -shared -rfbport "${LOGIN_DESKTOP_VNC_PORT}" -localhost -nopw -nap -wait 50 -defer 50 &
 run_forever novnc websockify --web=/usr/share/novnc "${LOGIN_DESKTOP_WEB_PORT}" "127.0.0.1:${LOGIN_DESKTOP_VNC_PORT}" &
 
 exec python /app/login_desktop_server.py

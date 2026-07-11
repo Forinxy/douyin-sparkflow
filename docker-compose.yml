@@ -73,6 +73,9 @@ services:
       DISPLAY: :99
       LOGIN_DESKTOP_API_PORT: "18090"
       LOGIN_DESKTOP_WEB_PORT: "6080"
+      LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS: ${LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS:-1800}
+      LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS: ${LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS:-60}
+      LOGIN_DESKTOP_STATUS_CACHE_SECONDS: ${LOGIN_DESKTOP_STATUS_CACHE_SECONDS:-15}
       HTTP_PROXY: http://proxy:7890
       HTTPS_PROXY: http://proxy:7890
       ALL_PROXY: socks5://proxy:7890
@@ -84,6 +87,9 @@ services:
     ports:
       - "${LOGIN_DESKTOP_BIND_ADDRESS:-127.0.0.1}:${LOGIN_DESKTOP_WEB_PORT:-8788}:6080"
     command: bash /app/scripts/start_login_desktop.sh
+    cpus: ${LOGIN_DESKTOP_CPUS:-1.0}
+    mem_limit: ${LOGIN_DESKTOP_MEMORY_LIMIT:-1200m}
+    pids_limit: ${LOGIN_DESKTOP_PIDS_LIMIT:-256}
     volumes:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
