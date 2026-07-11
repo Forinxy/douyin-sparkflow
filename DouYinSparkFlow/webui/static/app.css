@@ -1071,6 +1071,31 @@ textarea {
   gap: 12px;
 }
 
+.login-qr-panel {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-alt);
+  text-align: center;
+}
+
+.login-qr-image {
+  width: min(320px, 100%);
+  aspect-ratio: 1;
+  object-fit: contain;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.login-qr-panel .button-row {
+  justify-content: center;
+}
+
 .desktop-frame-wrap {
   min-width: 0;
   overflow: hidden;

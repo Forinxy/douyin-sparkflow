@@ -4,7 +4,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi.testclient import TestClient
 
@@ -162,6 +162,30 @@ class WebUiSafetyTests(unittest.TestCase):
         self.assertEqual("text/html", response.headers["content-type"])
         self.assertIn("noVNC", response.text)
         fetch_asset.assert_called_once_with("vnc.html", "autoconnect=1")
+
+    def test_login_qr_proxy_requires_auth_and_returns_png(self):
+        client = TestClient(app_module.app)
+        unauthenticated = client.get("/login-desktop/qr", follow_redirects=False)
+        self.assertEqual(303, unauthenticated.status_code)
+
+        upstream = Mock()
+        upstream.read.return_value = b"fake-png"
+        with (
+            patch.object(app_module, "current_user", return_value="admin"),
+            patch.object(app_module.urllib.request, "urlopen", return_value=upstream),
+        ):
+            response = client.get("/login-desktop/qr")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("image/png", response.headers["content-type"])
+        self.assertEqual("no-store, max-age=0", response.headers["cache-control"])
+        self.assertEqual(b"fake-png", response.content)
+
+    def test_dashboard_contains_mobile_qr_controls(self):
+        dashboard = (Path(app_module.TEMPLATES_DIR) / "dashboard.html").read_text(encoding="utf-8")
+        self.assertIn("data-login-qr", dashboard)
+        self.assertIn("data-refresh-login-qr", dashboard)
+        self.assertIn("/login-desktop/qr", dashboard)
 
     def test_mobile_login_popup_opens_before_async_request(self):
         script = (Path(app_module.STATIC_DIR) / "app.js").read_text(encoding="utf-8")

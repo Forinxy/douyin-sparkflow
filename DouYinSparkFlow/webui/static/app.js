@@ -344,7 +344,10 @@
   );
   const statusText = document.getElementById("login-desktop-status-text");
   const frame = document.querySelector("[data-login-frame]");
+  const qrImage = document.querySelector("[data-login-qr]");
+  const qrStatus = document.querySelector("[data-login-qr-status]");
   let timer = null;
+  let qrRefreshTimer = null;
 
   const setStatus = (text, tone = "") => {
     if (statusText) statusText.textContent = text;
@@ -378,6 +381,29 @@
       frame.src = frame.dataset.src;
       frame.dataset.loaded = "1";
     }
+  };
+
+  const refreshLoginQr = async (delay = 0) => {
+    if (!qrImage) return;
+    window.clearTimeout(qrRefreshTimer);
+    qrRefreshTimer = window.setTimeout(async () => {
+      if (qrStatus) qrStatus.textContent = "正在读取登录二维码...";
+      const url = `/login-desktop/qr?t=${Date.now()}`;
+      try {
+        const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+        if (!response.ok) throw new Error(String(response.status));
+        const blob = await response.blob();
+        const previous = qrImage.dataset.objectUrl || "";
+        const objectUrl = URL.createObjectURL(blob);
+        qrImage.src = objectUrl;
+        qrImage.dataset.objectUrl = objectUrl;
+        qrImage.hidden = false;
+        if (previous) URL.revokeObjectURL(previous);
+        if (qrStatus) qrStatus.textContent = "二维码已加载。如果过期，点击刷新。";
+      } catch {
+        if (qrStatus) qrStatus.textContent = "二维码还未准备好，请稍后刷新。";
+      }
+    }, delay);
   };
 
   const pollStatus = async () => {
@@ -417,16 +443,21 @@
       try {
         await postForm("/login-desktop/open");
         loadFrame();
+        refreshLoginQr(1800);
         if (!popup && frame) {
           frame.scrollIntoView({ behavior: "smooth", block: "start" });
-          setStatus("???????????????????????");
+          setStatus("弹窗被浏览器拦截，已在当前页面加载登录工作区。");
         } else {
-          setStatus("????????????????????????");
+          setStatus("请在登录工作区完成登录，然后返回此页保存登录态。");
         }
       } catch (error) {
-        setStatus(`??????????${error.message}`, "danger");
+        setStatus(`打开登录工作区失败：${error.message}`, "danger");
       }
     });
+  });
+
+  document.querySelectorAll("[data-refresh-login-qr]").forEach((button) => {
+    button.addEventListener("click", () => refreshLoginQr());
   });
 
   document.querySelectorAll(".login-desktop-save").forEach((button) => {

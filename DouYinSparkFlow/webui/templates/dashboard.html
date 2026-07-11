@@ -210,7 +210,20 @@
         <div class="login-actions">
           <div class="login-status-panel">
             <strong>登录状态</strong>
-            <p class="muted compact" id="login-desktop-status-text">???????????????????????????????????? 8788 ???</p>
+            <p class="muted compact" id="login-desktop-status-text">展开后检查登录桌面状态。手机端可直接查看下方的大图二维码。</p>
+          </div>
+          <div class="login-qr-panel">
+            <strong>手机扫码登录</strong>
+            <img class="login-qr-image" data-login-qr alt="抖音登录二维码" hidden>
+            <p class="muted compact" data-login-qr-status>点击“打开登录工作区”后会在这里显示大图二维码。</p>
+            <div class="button-row">
+              <button class="button button-soft" type="button" data-refresh-login-qr>
+                <i data-lucide="refresh-cw"></i><span>刷新二维码</span>
+              </button>
+              <a class="button button-quiet" href="/login-desktop/qr" target="_blank" rel="noopener">
+                <i data-lucide="maximize-2"></i><span>单独打开二维码</span>
+              </a>
+            </div>
           </div>
           <div class="button-row">
             <button class="button button-primary login-desktop-open" type="button">

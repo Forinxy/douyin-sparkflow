@@ -111,6 +111,12 @@ class DeploymentContractTests(unittest.TestCase):
         for entry in ("logs/", "config.json", "usersData.json", "webui_settings.json"):
             self.assertIn(entry, dockerignore)
 
+    def test_login_desktop_exposes_cropped_qr_endpoint(self):
+        server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/qr")', server)
+        self.assertIn('img[class*="qrcode"]', server)
+        self.assertIn('Cache-Control": "no-store, max-age=0', server)
+
     def test_legacy_unused_entrypoints_are_removed(self):
         self.assertFalse((SOURCE_ROOT / "webui" / "login_sessions.py").exists())
         self.assertFalse((SOURCE_ROOT / "relogin_worker.py").exists())

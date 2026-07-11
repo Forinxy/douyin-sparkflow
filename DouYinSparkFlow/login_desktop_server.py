@@ -332,6 +332,35 @@ async def export():
     return {"ok": True, "result": result}
 
 
+@app.get("/qr")
+async def login_qr():
+    page = await manager._get_active_page()
+    selectors = (
+        'img[class*="qrcode"]',
+        'img[src^="data:image/png;base64"]',
+    )
+    for selector in selectors:
+        candidates = page.locator(selector)
+        for index in range(await candidates.count()):
+            candidate = candidates.nth(index)
+            try:
+                box = await candidate.bounding_box()
+                if not box or box["width"] < 120 or box["height"] < 120:
+                    continue
+                ratio = box["width"] / max(1, box["height"])
+                if not 0.8 <= ratio <= 1.25:
+                    continue
+                data = await candidate.screenshot(type="png")
+                return Response(
+                    content=data,
+                    media_type="image/png",
+                    headers={"Cache-Control": "no-store, max-age=0"},
+                )
+            except Exception:
+                continue
+    raise HTTPException(status_code=404, detail="login QR code is not ready")
+
+
 @app.get("/debug/screenshot")
 async def debug_screenshot():
     page = await manager._get_active_page()

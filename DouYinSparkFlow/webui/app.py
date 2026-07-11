@@ -997,6 +997,28 @@ def create_app():
             if not accepted:
                 await websocket.close(code=1011)
 
+    @app.get("/login-desktop/qr")
+    async def login_desktop_qr(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return maybe_redirect
+        url = f"{login_desktop_api_url()}/qr"
+        try:
+            upstream_request = urllib.request.Request(url, method="GET")
+            content = await asyncio.to_thread(
+                lambda: urllib.request.urlopen(upstream_request, timeout=20).read()
+            )
+            return Response(
+                content=content,
+                media_type="image/png",
+                headers={"Cache-Control": "no-store, max-age=0"},
+            )
+        except urllib.error.HTTPError as exc:
+            status = 404 if exc.code == 404 else 502
+            return PlainTextResponse("login QR code is not ready", status_code=status)
+        except (urllib.error.URLError, TimeoutError):
+            return PlainTextResponse("login QR service is unavailable", status_code=502)
+
     @app.get("/login-desktop/status")
     async def login_desktop_status(request: Request):
         maybe_redirect = require_user(request)
