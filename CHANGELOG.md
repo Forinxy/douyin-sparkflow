@@ -10,6 +10,12 @@
 - Added unit coverage for send-state behavior, stale-lock safety, overview redaction, authentication, and public settings.
 - Made stale-lock PID probing portable across Linux and Windows and sanitized the public configuration template.
 - Removed obsolete standalone account, login-workspace, and settings templates now consolidated into the dashboard.
+- Fixed standard Compose scheduling by sharing persistent browser profiles with scheduler/task services, while limiting host Docker access to services that actually need it.
+- Moved the GitHub Actions workflow to the repository root, corrected its working directory/tests/profile/artifact paths, and pinned actions to commit SHAs.
+- Split the tracked `config.example.json` template from the ignored runtime `config.json`, with update-time config preservation.
+- Made login-desktop API/public URLs honor container environment settings and synchronize the configured schedule at Web startup.
+- Bound noVNC and Mihomo host ports to loopback by default and documented SSH-tunnel access.
+- Added an explicit Node.js image build check for protocol mode, made the cron reader tolerate Windows UTF-8 BOM files, and removed unused legacy login-session, relogin-worker, and nested Compose entrypoints.
 
 ## 2026-05-30
 

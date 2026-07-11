@@ -1,9 +1,11 @@
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import urllib.error
 import urllib.request
+from contextlib import asynccontextmanager
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -11,8 +13,6 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
-
-logger = logging.getLogger(__name__)
 
 from core.friends import fetch_account_friends
 from core.send_state import history_entry_is_strong_confirmed_today, parse_sent_at
@@ -50,8 +50,11 @@ from webui.ops import (
     run_task_now,
     run_unsent_retry_now,
     task_run_lock_status,
+    sync_daily_schedule_from_config,
     update_daily_schedule,
 )
+
+logger = logging.getLogger(__name__)
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -190,12 +193,17 @@ def mark_target_unconfirmed(account, target_name, *, reason="manual_reset_possib
 
 def login_desktop_api_url():
     settings = get_app_settings(force_reload=True)
-    return str(settings.get("login_desktop_api_url") or "http://127.0.0.1:18090").rstrip("/")
+    configured = os.getenv("SPARKFLOW_LOGIN_DESKTOP_API_URL") or settings.get("login_desktop_api_url")
+    return str(configured or "http://127.0.0.1:18090").rstrip("/")
 
 
 def login_desktop_public_url(request: Request) -> str:
     settings = get_app_settings(force_reload=True)
-    configured_url = str(settings.get("login_desktop_public_url") or "").strip()
+    configured_url = str(
+        os.getenv("SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL")
+        or settings.get("login_desktop_public_url")
+        or ""
+    ).strip()
     if configured_url:
         return configured_url
 
@@ -274,13 +282,27 @@ def public_app_settings():
 
 def create_app():
     settings = get_app_settings()
-    app = FastAPI(title="DouYin Spark Flow Admin")
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        result = sync_daily_schedule_from_config()
+        if result.returncode != 0:
+            logger.warning("Failed to synchronize the configured daily schedule: %s", result.stderr)
+        yield
+
+    secure_cookie = str(os.getenv("SPARKFLOW_SESSION_COOKIE_SECURE") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    app = FastAPI(title="DouYin Spark Flow Admin", lifespan=lifespan)
     app.add_middleware(
         SessionMiddleware,
         secret_key=settings["session_secret"],
         max_age=settings["session_max_age_seconds"],
         same_site="lax",
-        https_only=False,
+        https_only=secure_cookie,
     )
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
     DEBUG_ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)

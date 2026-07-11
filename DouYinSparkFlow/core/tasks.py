@@ -120,7 +120,11 @@ def _normalize_persistent_profile_config(active_config):
     raw = active_config.get("persistentBrowserProfiles", {}) or {}
     return {
         "enabled": bool(raw.get("enabled", False)),
-        "root": str(raw.get("root") or "/opt/douyin-sparkflow/state/browser-profiles"),
+        "root": str(
+            os.getenv("SPARKFLOW_BROWSER_PROFILE_ROOT")
+            or raw.get("root")
+            or "/opt/douyin-sparkflow/state/browser-profiles"
+        ),
         "seedCookiesWhenEmpty": bool(raw.get("seedCookiesWhenEmpty", True)),
         "syncStoredCookiesBeforeRun": bool(raw.get("syncStoredCookiesBeforeRun", True)),
         "refreshStoredCookiesAfterLogin": bool(raw.get("refreshStoredCookiesAfterLogin", True)),

@@ -1,4 +1,5 @@
-FROM mcr.microsoft.com/playwright/python:v1.56.0-jammy
+ARG PLAYWRIGHT_BASE_IMAGE=mcr.microsoft.com/playwright/python:v1.56.0-jammy
+FROM ${PLAYWRIGHT_BASE_IMAGE}
 
 WORKDIR /app
 
@@ -32,6 +33,7 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list \
     && apt-get update && apt-get install -y \
       cron \
       curl \
+      docker.io \
       fluxbox \
       fonts-wqy-zenhei \
       fonts-noto-cjk \
@@ -39,14 +41,8 @@ RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list \
       websockify \
       x11vnc \
       xfonts-intl-chinese \
-    && curl -fsSL ${HTTP_PROXY:+-x "$HTTP_PROXY"} https://download.docker.com/linux/static/stable/x86_64/docker-25.0.3.tgz -o docker.tgz \
-    && tar xzvf docker.tgz \
-    && mv docker/docker /usr/bin/docker \
-    && chmod +x /usr/bin/docker \
-    && rm -rf docker docker.tgz \
-    && mkdir -p /usr/local/lib/docker/cli-plugins \
-    && curl -SL ${HTTP_PROXY:+-x "$HTTP_PROXY"} https://github.com/docker/compose/releases/download/v2.24.5/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose \
-    && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose \
+    && docker --version \
+    && node --version \
     && rm -rf /var/lib/apt/lists/*
 
 COPY . .

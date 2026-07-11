@@ -14,3 +14,4 @@ DouYinSparkFlow/im_client_introspect.mjs
 DouYinSparkFlow/core/protocol_sender_debug.mjs
 DouYinSparkFlow/**/__pycache__/
 DouYinSparkFlow/**/*.pyc
+DouYinSparkFlow/config.json

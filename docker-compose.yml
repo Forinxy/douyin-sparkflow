@@ -9,8 +9,8 @@ services:
         max-size: "20m"
         max-file: "3"
     ports:
-      - "${PROXY_HTTP_PORT:-7890}:7890"
-      - "${PROXY_CONTROLLER_PORT:-9090}:9090"
+      - "${PROXY_BIND_ADDRESS:-127.0.0.1}:${PROXY_HTTP_PORT:-7890}:7890"
+      - "${PROXY_BIND_ADDRESS:-127.0.0.1}:${PROXY_CONTROLLER_PORT:-9090}:9090"
     volumes:
       - ./proxy/config.yaml:/root/.config/mihomo/config.yaml:ro
 
@@ -43,8 +43,10 @@ services:
       NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
       SPARKFLOW_LOGIN_DESKTOP_API_URL: http://login-desktop:18090
       LOGIN_DESKTOP_PUBLIC_PORT: ${LOGIN_DESKTOP_WEB_PORT:-8788}
+      SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL: ${LOGIN_DESKTOP_PUBLIC_URL:-http://127.0.0.1:8788/vnc.html?autoconnect=1&resize=scale&view_only=0}
+      SPARKFLOW_SESSION_COOKIE_SECURE: ${SPARKFLOW_SESSION_COOKIE_SECURE:-0}
     ports:
-      - "${WEB_PORT:-8787}:8787"
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_PORT:-8787}:8787"
     command: python main.py --web --host 0.0.0.0 --port 8787
     volumes:
       - ./DouYinSparkFlow:/app
@@ -69,7 +71,7 @@ services:
       ALL_PROXY: socks5://proxy:7890
       NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     ports:
-      - "${LOGIN_DESKTOP_WEB_PORT:-8788}:6080"
+      - "${LOGIN_DESKTOP_BIND_ADDRESS:-127.0.0.1}:${LOGIN_DESKTOP_WEB_PORT:-8788}:6080"
     command: bash /app/scripts/start_login_desktop.sh
     volumes:
       - ./DouYinSparkFlow:/app
@@ -94,6 +96,8 @@ services:
       - ./DouYinSparkFlow:/app
       - ./DouYinSparkFlow/logs:/app/logs
       - ./state/cron:/host-spool-cron
+      - ./state/browser-profiles:/opt/douyin-sparkflow/state/browser-profiles
+      - /var/run/docker.sock:/var/run/docker.sock
 
   task:
     image: douyin-sparkflow:local

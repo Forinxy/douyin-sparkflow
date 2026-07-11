@@ -24,7 +24,7 @@
     "enabled": true,
     "startHour": 10,
     "endHour": 18,
-    "scheduleIntervalMinutes": 10
+    "scheduleIntervalMinutes": 20
   },
   "hitokotoTypes": [
     "文学",
@@ -33,7 +33,7 @@
     "哲学"
   ],
   "happyNewYear": {
-    "enabled": true,
+    "enabled": false,
     "messageTemplate": "\r\n"
   },
   "friendListScan": {

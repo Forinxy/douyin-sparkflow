@@ -19,39 +19,55 @@ APPSETTINGSFILE = "webui_settings.json"
 
 DEFAULT_CONFIG = {
     "multiTask": True,
-    "taskCount": 5,
+    "taskCount": 1,
     "proxyAddress": "",
-    "messageTemplate": "【AI续火花】",
+    "messageTemplate": "🤩今日火花+1\r\n",
     "saveDebugArtifacts": False,
-    "useProtocolSender": True,
+    "useProtocolSender": False,
     "protocolDryRun": False,
     "browserSenderAccounts": [],
-    "persistentBrowserProfiles": {
+    "sendStrategy": {
+        "shuffleTargets": True,
+        "accountStartDelaySecondsMin": 15,
+        "accountStartDelaySecondsMax": 60,
+        "messageIntervalSecondsMin": 25,
+        "messageIntervalSecondsMax": 70,
+        "messageVariants": [
+            "🤩今日火花+1",
+            "今天来补个火花",
+            "给你续一下今天的火花",
+            "路过给你加个小火花"
+        ]
+    },
+    "dailySendWindow": {
+        "enabled": True,
+        "startHour": 10,
+        "endHour": 18,
+        "scheduleIntervalMinutes": 20
+    },
+    "hitokotoTypes": [
+        "文学",
+        "影视",
+        "诗词",
+        "哲学"
+    ],
+    "happyNewYear": {
         "enabled": False,
+        "messageTemplate": "\r\n"
+    },
+    "friendListScan": {
+        "maxScanSeconds": 300,
+        "idleScanSeconds": 120,
+        "scrollStepPx": 400,
+        "scrollDelaySeconds": 0.8
+    },
+    "persistentBrowserProfiles": {
+        "enabled": True,
         "root": "/opt/douyin-sparkflow/state/browser-profiles",
         "seedCookiesWhenEmpty": True,
         "syncStoredCookiesBeforeRun": True,
-        "refreshStoredCookiesAfterLogin": True,
-    },
-    "sendStrategy": {
-        "shuffleTargets": True,
-        "accountStartDelaySecondsMin": 0,
-        "accountStartDelaySecondsMax": 20,
-        "messageIntervalSecondsMin": 18,
-        "messageIntervalSecondsMax": 45,
-        "messageVariants": [],
-    },
-    "dailySendWindow": {
-        "enabled": False,
-        "startHour": 10,
-        "endHour": 18,
-        "scheduleIntervalMinutes": 10,
-    },
-    "hitokotoTypes": ["文学", "影视", "诗词", "哲学"],
-    "happyNewYear": {
-        "enabled": False,
-        "messageTemplate": "【[data]|[data_lunar]】\n[API]",
-    },
+        "refreshStoredCookiesAfterLogin": True
+    }
 }
 
 DEFAULT_APP_SETTINGS = {

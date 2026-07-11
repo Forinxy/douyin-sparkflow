@@ -73,18 +73,31 @@ ensure_docker() {
 
 prepare_repo() {
   run_root mkdir -p "$(dirname "$APP_ROOT")"
+  local runtime_config_backup=""
+  if [ -f "$APP_ROOT/DouYinSparkFlow/config.json" ]; then
+    runtime_config_backup="$(mktemp)"
+    run_root cp "$APP_ROOT/DouYinSparkFlow/config.json" "$runtime_config_backup"
+  fi
+
   if [ -d "$APP_ROOT/.git" ]; then
     log "Updating existing repository at $APP_ROOT"
     run_root git -C "$APP_ROOT" fetch origin "$BRANCH"
     run_root git -C "$APP_ROOT" checkout -B "$BRANCH" "origin/$BRANCH"
     run_root git -C "$APP_ROOT" reset --hard "origin/$BRANCH"
   else
-    if [ -e "$APP_ROOT" ] && [ "$ACTION" = "install" ]; then
-      echo "$APP_ROOT exists but is not a git checkout. Move it aside or set ACTION=update after fixing it." >&2
+    if [ -e "$APP_ROOT" ]; then
+      echo "$APP_ROOT exists but is not a git checkout. Back up runtime data and move the directory aside before installing." >&2
       exit 1
     fi
     log "Cloning $REPO_URL#$BRANCH into $APP_ROOT"
     run_root git clone --branch "$BRANCH" "$REPO_URL" "$APP_ROOT"
+  fi
+
+  if [ -n "$runtime_config_backup" ]; then
+    run_root mkdir -p "$APP_ROOT/DouYinSparkFlow"
+    run_root cp "$runtime_config_backup" "$APP_ROOT/DouYinSparkFlow/config.json"
+    rm -f "$runtime_config_backup"
+    log "Restored runtime config.json after repository update"
   fi
 }
 
@@ -143,7 +156,7 @@ prepare_runtime_files() {
   set_env_value "$env_file" "APP_ROOT" "$APP_ROOT"
   set_env_value "$env_file" "DEFAULT_SCHEDULE" "$DEFAULT_SCHEDULE"
 
-  for key in TZ WEB_PORT LOGIN_DESKTOP_WEB_PORT PROXY_HTTP_PORT PROXY_CONTROLLER_PORT PROXY_SUB_URL PROXY_USER_AGENT PLAYWRIGHT_BASE_IMAGE HTTP_PROXY_BUILD HTTPS_PROXY_BUILD ALL_PROXY_BUILD PIP_INDEX_URL PIP_TRUSTED_HOST; do
+  for key in TZ WEB_BIND_ADDRESS WEB_PORT SPARKFLOW_SESSION_COOKIE_SECURE LOGIN_DESKTOP_BIND_ADDRESS LOGIN_DESKTOP_WEB_PORT LOGIN_DESKTOP_PUBLIC_URL PROXY_BIND_ADDRESS PROXY_HTTP_PORT PROXY_CONTROLLER_PORT PROXY_SUB_URL PROXY_USER_AGENT PLAYWRIGHT_BASE_IMAGE HTTP_PROXY_BUILD HTTPS_PROXY_BUILD ALL_PROXY_BUILD PIP_INDEX_URL PIP_TRUSTED_HOST; do
     if [ -n "${!key:-}" ]; then
       set_env_value "$env_file" "$key" "${!key}"
     fi
@@ -164,6 +177,7 @@ prepare_runtime_files() {
     "$APP_ROOT/proxy" \
     "$APP_ROOT/state/cron" \
     "$APP_ROOT/state/login-profile" \
+    "$APP_ROOT/state/browser-profiles" \
     "$APP_ROOT/DouYinSparkFlow/logs"
 
   if [ ! -f "$APP_ROOT/proxy/config.yaml" ]; then
@@ -189,7 +203,7 @@ compose_up() {
     sleep 2
   done
   if [ "$tries" -ge 30 ]; then
-    echo "Proxy did not become reachable on 127.0.0.1:7890; the build may fail downloading docker/compose binaries." >&2
+    echo "Proxy did not become reachable on 127.0.0.1:7890; the build may fail downloading external packages." >&2
   fi
   log "Building and starting remaining containers"
   run_root env DOCKER_BUILDKIT=1 COMPOSE_DOCKER_CLI_BUILD=1 \
@@ -201,15 +215,22 @@ compose_up() {
 
 print_summary() {
   local env_file="$APP_ROOT/.env"
-  local web_port login_port host_ip
+  local web_port login_port login_bind host_ip
   web_port="$(read_env_value "$env_file" WEB_PORT)"
   login_port="$(read_env_value "$env_file" LOGIN_DESKTOP_WEB_PORT)"
+  login_bind="$(read_env_value "$env_file" LOGIN_DESKTOP_BIND_ADDRESS)"
   host_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   host_ip="${host_ip:-127.0.0.1}"
   echo
   echo "Douyin SparkFlow is running."
   echo "Web UI: http://${host_ip}:${web_port:-8787}"
-  echo "Login desktop: http://${host_ip}:${login_port:-8788}/vnc.html?autoconnect=1&resize=scale&view_only=0"
+  if [ "${login_bind:-127.0.0.1}" = "127.0.0.1" ]; then
+    echo "Login desktop is local-only: http://127.0.0.1:${login_port:-8788}/vnc.html?autoconnect=1&resize=scale&view_only=0"
+    echo "For remote access, create an SSH tunnel: ssh -L ${login_port:-8788}:127.0.0.1:${login_port:-8788} <user>@${host_ip}"
+  else
+    echo "Login desktop: http://${host_ip}:${login_port:-8788}/vnc.html?autoconnect=1&resize=scale&view_only=0"
+    echo "Warning: public noVNC access should be protected by a firewall or VPN."
+  fi
   echo
   echo "Runtime files preserved outside git: .env, state/, proxy/config.yaml, DouYinSparkFlow/logs/, usersData.json, webui_settings.json."
   echo "Update later with: ACTION=update bash $APP_ROOT/deploy/install-server.sh"

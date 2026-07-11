@@ -1,0 +1,63 @@
+name: DouYin Spark Flow Schedule Run
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *" # 10:00 Asia/Shanghai
+
+permissions:
+  contents: read
+
+concurrency:
+  group: douyin-sparkflow-scheduled-send
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: DouYinSparkFlow
+
+jobs:
+  run-main:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    environment: user-data
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Test Douyin accessibility
+        run: |
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://creator.douyin.com/)"
+          test "$status" != "000"
+      - name: Ensure Chromium is installed
+        run: playwright install chromium --with-deps --only-shell
+      - name: Run DouYin Spark Flow
+        env:
+          USER_DATA: ${{ secrets.USER_DATA }}
+          SPARKFLOW_BROWSER_PROFILE_ROOT: ${{ runner.temp }}/douyin-sparkflow-browser-profiles
+          SPARKFLOW_MANUAL_RUN: "1"
+          PYTHONUNBUFFERED: "1"
+        run: python main.py --doTask
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: ${{ !cancelled() }}
+        with:
+          name: run-logs
+          path: DouYinSparkFlow/logs/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  workflow-keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: liskin/gh-workflow-keepalive@f72ff1a1336129f29bf0166c0fd0ca6cf1bcb38c # v1

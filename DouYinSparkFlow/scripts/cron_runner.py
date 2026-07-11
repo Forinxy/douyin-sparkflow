@@ -58,7 +58,7 @@ def read_crontab(path):
     if not path.exists():
         return []
     lines = []
-    for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw_line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" in line.split(maxsplit=1)[0]:
             continue

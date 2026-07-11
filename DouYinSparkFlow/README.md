@@ -33,7 +33,6 @@
 |------|------|
 | `app.py` | FastAPI 主应用，路由定义 |
 | `auth.py` | 用户认证和会话管理 |
-| `login_sessions.py` | 登录会话生命周期管理 |
 | `ops.py` | 操作接口（启动/停止任务、刷新好友等） |
 
 #### 前端资源
@@ -73,11 +72,10 @@ webui/
 | `cron_runner.py` | Cron 任务运行器 |
 | `start_login_desktop.sh` | 登录桌面启动脚本 |
 
-### `docs/` - 文档和资源
+### `docs/` - 截图资源
 
-| 文件/目录 | 说明 |
+| 目录 | 说明 |
 |----------|------|
-| `usage.md` | 详细使用教程（含截图） |
 | `images/` | 界面截图和示意图 |
 
 ---
@@ -138,9 +136,9 @@ docker run -d \
 
 ## ⚙️ 配置文件
 
-### `config.json` - 应用配置
+### `config.example.json` 与 `config.json` - 应用配置
 
-主配置文件控制发送窗口、好友扫描、浏览器 Profile 和消息策略。仓库版本不包含真实账号标识：
+`config.example.json` 是公开模板；首次运行会生成不受 Git 跟踪的 `config.json`，用于保存 Web 中修改的发送窗口、好友扫描、浏览器 Profile 和消息策略：
 
 ```json
 {
@@ -151,7 +149,7 @@ docker run -d \
     "enabled": true,
     "startHour": 10,
     "endHour": 18,
-    "scheduleIntervalMinutes": 10
+    "scheduleIntervalMinutes": 20
   },
   "friendListScan": {
     "maxScanSeconds": 300,
@@ -185,17 +183,17 @@ docker run -d \
 
 示例结构：
 ```json
-{
-  "accounts": [
-    {
-      "id": "user_123",
-      "nickname": "用户昵称",
-      "friends": [...],
-      "last_send_time": "2026-06-20T10:30:00",
-      "send_history": [...]
-    }
-  ]
-}
+[
+  {
+    "unique_id": "123456789",
+    "username": "账号显示名",
+    "cookies": [],
+    "targets": ["目标好友"],
+    "enabled": true,
+    "message_history": {},
+    "failure_queue": {}
+  }
+]
 ```
 
 ### `webui_settings.json` - Web UI 设置
@@ -265,8 +263,8 @@ Web UI 提供以下 RESTful API 接口：
 定时触发 → tasks.py 检查发送条件
         → 筛选需要发送的好友
         → msg_builder.py 构建消息内容
-        → protocol_sender.mjs 发送消息
-        → 等待发送确认
+        → 按配置选择 Playwright 浏览器发送或 protocol_sender.mjs 协议发送
+        → 等待强证据发送确认
         → 记录发送历史
         → 更新下次发送时间
 ```
@@ -318,7 +316,7 @@ A: 检查 `login_desktop_server.py` 是否正常运行，端口 18090 是否被�
 A: 确保已安装 Playwright：`playwright install chromium`
 
 **Q: 消息发送失败？**  
-A: 检查网络连接，查看 `logs/tasks.log` 中的错误信息。
+A: 检查网络连接，查看 `logs/app.log` 或 Web 运行日志中的错误信息。
 
 **Q: Web UI 无法访问？**  
 A: 检查端口 8787 是否被占用，防火墙是否允许该端口。
@@ -331,7 +329,7 @@ A: 检查端口 8787 是否被占用，防火墙是否允许该端口。
 
 ```
 playwright>=1.40.0      # 浏览器自动化
-apscheduler>=3.10.0     # 任务调度
+自定义 cron_runner.py      # 任务调度（无需额外 Python 依赖）
 ```
 
 ### `requirements-web.txt` - Web 依赖
@@ -352,6 +350,7 @@ jinja2>=3.1.0           # 模板引擎
 
 以下文件**绝对不要**提交到 Git 仓库：
 
+- ❌ `config.json` - 运行时发送配置
 - ❌ `usersData.json` - 包含账号数据和好友信息
 - ❌ `webui_settings.json` - 包含管理员密码
 - ❌ `.env` - 包含环境变量和密钥
@@ -372,8 +371,8 @@ jinja2>=3.1.0           # 模板引擎
 ## 📚 相关文档
 
 - [项目主 README](../README.md) - 整体介绍和快速开始
-- [使用文档](docs/usage.md) - 详细使用教程
-- [更新日志](CHANGELOG.md) - 版本更新历史
+- [使用文档](../docs/usage.md) - 详细使用教程
+- [更新日志](../CHANGELOG.md) - 版本更新历史
 - [Docker 部署](../docker-compose.yml) - 容器编排配置
 
 ---

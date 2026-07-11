@@ -58,6 +58,56 @@ function Get-EnvValue {
     return $DefaultValue
 }
 
+
+function Set-YamlScalar {
+    param(
+        [string]$Path,
+        [string]$Key,
+        [string]$Value
+    )
+    $content = if (Test-Path $Path) { @(Get-Content -Path $Path) } else { @() }
+    $escapedKey = [regex]::Escape($Key)
+    $found = $false
+    $updated = foreach ($line in $content) {
+        if ($line -match "^${escapedKey}:") {
+            $found = $true
+            "${Key}: ${Value}"
+        } else {
+            $line
+        }
+    }
+    if (-not $found) {
+        $updated = @($updated) + "${Key}: ${Value}"
+    }
+    Set-Content -Path $Path -Value $updated -Encoding utf8
+}
+
+function Initialize-ProxyConfig {
+    $configPath = "proxy/config.yaml"
+    $examplePath = "proxy/config.example.yaml"
+    $subscription = Get-EnvValue -Path ".env" -Key "PROXY_SUB_URL" -DefaultValue ""
+    $userAgent = Get-EnvValue -Path ".env" -Key "PROXY_USER_AGENT" -DefaultValue "clash-verge/1.7.7"
+
+    if ($subscription) {
+        $tempPath = "$configPath.tmp"
+        try {
+            Invoke-WebRequest -Uri $subscription -Headers @{ "User-Agent" = $userAgent } -OutFile $tempPath -UseBasicParsing
+            Move-Item -Force $tempPath $configPath
+            Write-Host "Proxy subscription refreshed: $configPath"
+        } finally {
+            Remove-Item -Force $tempPath -ErrorAction SilentlyContinue
+        }
+    } elseif (-not (Test-Path $configPath)) {
+        Copy-Item $examplePath $configPath
+        Write-Host "PROXY_SUB_URL is empty. Created a DIRECT-only proxy config."
+    }
+
+    Set-YamlScalar -Path $configPath -Key "mixed-port" -Value "7890"
+    Set-YamlScalar -Path $configPath -Key "allow-lan" -Value "true"
+    Set-YamlScalar -Path $configPath -Key "bind-address" -Value "'*'"
+    Set-YamlScalar -Path $configPath -Key "external-controller" -Value "'0.0.0.0:9090'"
+}
+
 Require-Command docker
 docker compose version | Out-Null
 
@@ -69,7 +119,7 @@ if ($ProxySubUrl) {
     Set-EnvValue -Path ".env" -Key "PROXY_SUB_URL" -Value $ProxySubUrl
 }
 
-New-Item -ItemType Directory -Force -Path "proxy", "state/cron", "state/login-profile", "DouYinSparkFlow/logs" | Out-Null
+New-Item -ItemType Directory -Force -Path "proxy", "state/cron", "state/login-profile", "state/browser-profiles", "DouYinSparkFlow/logs" | Out-Null
 if (-not (Test-Path "proxy/config.yaml")) {
     Copy-Item "proxy/config.example.yaml" "proxy/config.yaml"
 }
@@ -81,7 +131,7 @@ if (-not (Test-Path "state/cron/root") -or (Get-Item "state/cron/root").Length -
     ) | Set-Content -Path "state/cron/root" -Encoding utf8
 }
 
-bash ./refresh_proxy.sh
+Initialize-ProxyConfig
 
 docker compose up -d --build
 

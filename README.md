@@ -90,17 +90,24 @@ cp .env.example .env
 nano .env  # 根据需要修改配置
 
 # 3. 启动服务
-docker-compose up -d
+docker compose up -d
 
 # 4. 访问 Web 界面
 # 浏览器打开 http://localhost:8787
 ```
 
 **服务端口说明**：
-- `8787`: Web 管理控制台
-- `18090`: 登录桌面 API
-- `5901`: VNC 远程桌面
-- `8788`: noVNC Web 桌面
+- `8787`：Web 管理控制台，默认监听全部网卡
+- `8788`：noVNC 登录桌面，默认只绑定 `127.0.0.1`
+- `7890` / `9090`：代理和控制端口，默认只绑定 `127.0.0.1`
+
+服务器远程访问 noVNC 时，请先建立 SSH 隧道：
+
+```bash
+ssh -L 8788:127.0.0.1:8788 <user>@<server-ip>
+```
+
+然后打开 `http://127.0.0.1:8788/vnc.html?autoconnect=1&resize=scale&view_only=0`。
 
 </details>
 
@@ -137,7 +144,7 @@ python main.py --web
 4. **启动任务** → 在"概览"页面启动定时任务
 5. **监控运行** → 在"发送控制台"查看实时日志和发送记录
 
-📖 详细使用教程请查看 [使用文档](DouYinSparkFlow/docs/usage.md)
+📖 详细使用教程请查看 [使用文档](docs/usage.md)
 
 ---
 
@@ -156,7 +163,6 @@ douyin-sparkflow/
 │   ├── webui/                # Web 界面
 │   │   ├── app.py            # FastAPI 主应用
 │   │   ├── auth.py           # 认证模块
-│   │   ├── login_sessions.py # 登录会话管理
 │   │   ├── ops.py            # 操作接口
 │   │   ├── static/           # 静态资源（CSS/JS）
 │   │   └── templates/        # HTML 模板
@@ -167,8 +173,8 @@ douyin-sparkflow/
 │   ├── scripts/              # 辅助脚本
 │   ├── docs/                 # 文档和截图
 │   ├── main.py               # 主入口
-│   ├── login_desktop_server.py  # 登录桌面服务
-│   └── relogin_worker.py     # 重登录工作进程
+│   └── login_desktop_server.py  # 登录桌面服务
+├── .github/workflows/       # GitHub Actions 定时任务
 ├── proxy/                    # 代理配置
 │   └── config.yaml           # Mihomo 代理配置
 ├── docker-compose.yml        # 容器编排配置
@@ -209,22 +215,24 @@ douyin-sparkflow/
 #### `.env` - 环境变量配置
 
 ```bash
-# 代理配置（可选）
-PROXY_URL=http://proxy-container:7890
-
-# Web 服务端口
+WEB_BIND_ADDRESS=0.0.0.0
 WEB_PORT=8787
 
-# 登录桌面端口
-LOGIN_DESKTOP_PORT=18090
+# noVNC 默认仅允许本机或 SSH 隧道访问
+LOGIN_DESKTOP_BIND_ADDRESS=127.0.0.1
+LOGIN_DESKTOP_WEB_PORT=8788
+LOGIN_DESKTOP_PUBLIC_URL=http://127.0.0.1:8788/vnc.html?autoconnect=1&resize=scale&view_only=0
 
-# VNC 端口
-VNC_PORT=5901
+# Mihomo 代理和控制端口默认仅绑定本机
+PROXY_BIND_ADDRESS=127.0.0.1
+PROXY_HTTP_PORT=7890
+PROXY_CONTROLLER_PORT=9090
+PROXY_SUB_URL=
 ```
 
-#### `config.json` - 应用配置
+#### `config.example.json` 与 `config.json` - 应用配置
 
-仓库中的 `DouYinSparkFlow/config.json` 是不含账号数据的模板。常用配置示例：
+仓库跟踪 `DouYinSparkFlow/config.example.json`；首次运行会生成被 Git 忽略的 `DouYinSparkFlow/config.json`。常用配置示例：
 
 ```json
 {
@@ -235,7 +243,7 @@ VNC_PORT=5901
     "enabled": true,
     "startHour": 10,
     "endHour": 18,
-    "scheduleIntervalMinutes": 10
+    "scheduleIntervalMinutes": 20
   },
   "friendListScan": {
     "maxScanSeconds": 300,
@@ -265,7 +273,7 @@ VNC_PORT=5901
 
 本项目提供完整的 Docker Compose 配置，包含以下服务：
 
-- **douyin-web**: Web 管理控制台服务
+- **web**（容器名 `douyin-web`）：Web 管理控制台服务
 - **login-desktop**: 登录桌面服务（包含浏览器环境）
 - **proxy**: Mihomo 代理服务（可选）
 - **scheduler**: 发送窗口定时调度服务
@@ -278,19 +286,19 @@ VNC_PORT=5901
 cp .env.example .env
 
 # 2. 启动所有服务
-docker-compose up -d
+docker compose up -d
 
 # 3. 查看日志
-docker-compose logs -f
+docker compose logs -f
 
 # 4. 停止服务
-docker-compose down
+docker compose down
 ```
 
 #### 仅部署 Web 服务
 
 ```bash
-docker-compose up -d douyin-web
+docker compose up -d web
 ```
 
 ### 服务器部署最佳实践
@@ -359,9 +367,16 @@ mode: rule
 # ... 更多配置见配置文件
 ```
 
+
+### 默认网络安全
+
+noVNC、Mihomo 代理端口和控制端口默认仅绑定 `127.0.0.1`。远程服务器请优先通过 SSH 隧道、VPN 或带认证的 HTTPS 反向代理访问，不建议直接把 8788、7890、9090 暴露到公网。
+
+Web 通过 HTTPS 反向代理部署时，可设置 `SPARKFLOW_SESSION_COOKIE_SECURE=1`。
+
 ### GitHub Actions 定时任务
 
-支持通过 GitHub Actions 运行定时任务，配置文件：`.github/workflows/schedule.yml`
+工作流位于 `.github/workflows/schedule.yml`。在仓库的 `user-data` Environment 中配置 `USER_DATA` Secret 后，可以手动触发或按北京时间 10:00 定时执行一次手动模式发送。工作流会先执行单元测试和网络可达性检查，再处理当天尚未强确认的目标。
 
 ---
 
@@ -372,7 +387,7 @@ mode: rule
 - **浏览器自动化**: Playwright - 跨浏览器自动化
 - **容器化**: Docker + Docker Compose
 - **代理**: Mihomo (Clash Meta)
-- **任务调度**: APScheduler
+- **任务调度**: `scheduler` 容器 + `scripts/cron_runner.py`
 - **模板引擎**: Jinja2
 
 ---
@@ -432,7 +447,7 @@ mode: rule
 
 - **项目主页**: [GitHub Repository](https://github.com/halfwaystudent/douyin-sparkflow)
 - **社区讨论**: [Linux Do 社区](https://linux.do)
-- **使用文档**: [docs/usage.md](DouYinSparkFlow/docs/usage.md)
+- **使用文档**: [docs/usage.md](docs/usage.md)
 - **问题反馈**: [Issues](https://github.com/halfwaystudent/douyin-sparkflow/issues)
 
 ---

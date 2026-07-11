@@ -104,6 +104,53 @@ class WebUiSafetyTests(unittest.TestCase):
                 self.assertEqual(200, response.status_code, path)
                 self.assertEqual("no-store", response.headers["cache-control"])
 
+    def test_login_desktop_urls_honor_container_environment(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "SPARKFLOW_LOGIN_DESKTOP_API_URL": "http://login-desktop:18090",
+                    "SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL": "http://127.0.0.1:8788/vnc.html",
+                },
+            ),
+            patch.object(app_module, "get_app_settings", return_value={}),
+        ):
+            self.assertEqual("http://login-desktop:18090", app_module.login_desktop_api_url())
+            request = type("Request", (), {"url": type("Url", (), {"hostname": "example", "scheme": "http"})()})()
+            self.assertEqual(
+                "http://127.0.0.1:8788/vnc.html",
+                app_module.login_desktop_public_url(request),
+            )
+
+    def test_schedule_sync_writes_configured_window_to_shared_spool(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            cron_path = Path(temp_dir) / "root"
+            with (
+                patch.object(ops, "HOST_CRONTAB_PATH", cron_path),
+                patch.object(ops, "running_in_container", return_value=True),
+                patch.object(ops, "read_crontab", return_value=""),
+                patch.object(
+                    ops,
+                    "get_config",
+                    return_value={
+                        "dailySendWindow": {
+                            "enabled": True,
+                            "startHour": 10,
+                            "endHour": 18,
+                            "scheduleIntervalMinutes": 20,
+                        }
+                    },
+                ),
+            ):
+                result = ops.sync_daily_schedule_from_config()
+
+            self.assertEqual(0, result.returncode)
+            text = cron_path.read_text(encoding="utf-8")
+            self.assertIn("*/20 10-17 * * *", text)
+            self.assertIn("0 18 * * *", text)
+            self.assertIn("20 18 * * *", text)
+            self.assertIn("docker exec", text)
+
     def test_overview_api_requires_authentication_and_disables_cache(self):
         client = TestClient(app_module.app)
         response = client.get("/api/ops/overview")

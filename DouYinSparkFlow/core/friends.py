@@ -1,6 +1,4 @@
 import asyncio
-from pathlib import Path
-
 from core.browser import get_browser
 
 

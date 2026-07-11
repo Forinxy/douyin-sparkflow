@@ -44,5 +44,5 @@ def request_hitokoto():
         if theFromWho is None or theFromWho.strip() == "":
             theFromWho = "未知作者"
         return f"{data['hitokoto']} —— {theFrom} ({theFromWho})"
-    except Exception as e:
+    except Exception:
         return "[error] 无法获取一言内容"

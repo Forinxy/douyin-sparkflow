@@ -1,0 +1,103 @@
+import unittest
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SOURCE_ROOT = REPO_ROOT / "DouYinSparkFlow"
+
+
+class DeploymentContractTests(unittest.TestCase):
+    def test_github_workflow_is_at_repository_root(self):
+        workflow = REPO_ROOT / ".github" / "workflows" / "schedule.yml"
+        self.assertTrue(workflow.is_file())
+        self.assertFalse((SOURCE_ROOT / ".github" / "workflows" / "schedule.yml").exists())
+        text = workflow.read_text(encoding="utf-8")
+        self.assertIn("working-directory: DouYinSparkFlow", text)
+        self.assertIn("SPARKFLOW_BROWSER_PROFILE_ROOT", text)
+        self.assertIn("SPARKFLOW_MANUAL_RUN", text)
+        self.assertIn("path: DouYinSparkFlow/logs/", text)
+
+    def test_github_actions_are_pinned_to_commit_shas(self):
+        import re
+
+        workflow = (REPO_ROOT / ".github" / "workflows" / "schedule.yml").read_text(encoding="utf-8")
+        uses_values = re.findall(r"^\s*-?\s*uses:\s*([^#\s]+)", workflow, flags=re.MULTILINE)
+        self.assertTrue(uses_values)
+        for value in uses_values:
+            self.assertRegex(value, r"^[^@]+@[0-9a-f]{40}$")
+
+    def test_runtime_config_is_not_tracked_as_the_template(self):
+        self.assertTrue((SOURCE_ROOT / "config.example.json").is_file())
+        self.assertIn("config.json", (SOURCE_ROOT / ".gitignore").read_text(encoding="utf-8"))
+
+    def test_compose_runtime_mounts_follow_least_privilege(self):
+        text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        web = text.split("  web:", 1)[1].split("\n  login-desktop:", 1)[0]
+        scheduler = text.split("  scheduler:", 1)[1].split("\n  task:", 1)[0]
+        task = text.split("  task:", 1)[1]
+
+        self.assertIn("/var/run/docker.sock:/var/run/docker.sock", web)
+        self.assertIn(".:/opt/douyin-sparkflow", web)
+        self.assertIn("/var/run/docker.sock:/var/run/docker.sock", scheduler)
+        self.assertNotIn(".:/opt/douyin-sparkflow", scheduler)
+        self.assertNotIn("/var/run/docker.sock:/var/run/docker.sock", task)
+        self.assertNotIn(".:/opt/douyin-sparkflow", task)
+        for service in (scheduler, task):
+            self.assertIn(
+                "./state/browser-profiles:/opt/douyin-sparkflow/state/browser-profiles",
+                service,
+            )
+
+    def test_cron_reader_accepts_windows_utf8_bom(self):
+        import tempfile
+
+        from scripts.cron_runner import read_crontab
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "root"
+            path.write_text(
+                "*/20 10-17 * * * cd /app && python main.py --doTask\n",
+                encoding="utf-8-sig",
+            )
+            lines = read_crontab(path)
+
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("*/20 "))
+
+    def test_sensitive_ports_bind_to_loopback_by_default(self):
+        text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("${PROXY_BIND_ADDRESS:-127.0.0.1}:${PROXY_HTTP_PORT:-7890}:7890", text)
+        self.assertIn(
+            "${LOGIN_DESKTOP_BIND_ADDRESS:-127.0.0.1}:${LOGIN_DESKTOP_WEB_PORT:-8788}:6080",
+            text,
+        )
+
+    def test_container_login_api_and_public_url_are_wired(self):
+        text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        self.assertIn("SPARKFLOW_LOGIN_DESKTOP_API_URL: http://login-desktop:18090", text)
+        self.assertIn("SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL", text)
+
+    def test_installers_preserve_runtime_config_and_do_not_require_bash_on_windows(self):
+        server = (REPO_ROOT / "deploy" / "install-server.sh").read_text(encoding="utf-8")
+        windows = (REPO_ROOT / "deploy" / "install-local.ps1").read_text(encoding="utf-8")
+        self.assertIn("runtime_config_backup", server)
+        self.assertIn("Restored runtime config.json", server)
+        self.assertNotIn("bash ./refresh_proxy.sh", windows)
+        self.assertIn("Initialize-ProxyConfig", windows)
+
+    def test_playwright_base_image_argument_is_used(self):
+        dockerfile = (SOURCE_ROOT / "Dockerfile.server").read_text(encoding="utf-8")
+        self.assertTrue(dockerfile.startswith("ARG PLAYWRIGHT_BASE_IMAGE="))
+        self.assertIn("FROM ${PLAYWRIGHT_BASE_IMAGE}", dockerfile)
+        self.assertIn("docker.io", dockerfile)
+        self.assertIn("node --version", dockerfile)
+        self.assertNotIn("github.com/docker/compose", dockerfile)
+
+    def test_legacy_unused_entrypoints_are_removed(self):
+        self.assertFalse((SOURCE_ROOT / "webui" / "login_sessions.py").exists())
+        self.assertFalse((SOURCE_ROOT / "relogin_worker.py").exists())
+        self.assertFalse((SOURCE_ROOT / "docker-compose.example.yml").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()

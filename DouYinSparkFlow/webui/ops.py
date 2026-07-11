@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from core.send_state import history_entry_is_strong_confirmed_today, parse_sent_at
-from utils.config import get_app_settings, get_config, get_userData, normalize_unique_id, repo_root, save_config
+from utils.config import get_app_settings, get_config, get_userData, repo_root, save_config
 
 logger = logging.getLogger(__name__)
 
@@ -423,6 +423,8 @@ def refresh_proxy():
 
 def restart_proxy():
     try:
+        if running_in_container():
+            return run_command(["docker", "restart", "mihomo"], timeout=120)
         return run_command(compose_command("restart", "proxy"), timeout=120)
     except Exception as exc:
         logger.error("restart_proxy failed: %s", exc)
@@ -563,6 +565,43 @@ def update_daily_schedule(time_string):
         return process
     except Exception as exc:
         logger.error("update_daily_schedule failed: %s", exc)
+        return _empty_result(stderr=str(exc))
+
+
+def sync_daily_schedule_from_config():
+    config = get_config(force_reload=True)
+    window = dict(config.get("dailySendWindow") or {})
+    if not window.get("enabled"):
+        return subprocess.CompletedProcess(
+            args=["sync-daily-schedule"],
+            returncode=0,
+            stdout="schedule disabled; existing crontab left unchanged",
+            stderr="",
+        )
+
+    try:
+        time_string = _format_window_schedule(window)
+        current = read_crontab()
+        updated = replace_douyin_cron_schedule(current, time_string)
+        if updated == current:
+            return subprocess.CompletedProcess(
+                args=["sync-daily-schedule"], returncode=0, stdout="already synchronized", stderr=""
+            )
+        if running_in_container() and HOST_CRONTAB_PATH.parent.exists():
+            HOST_CRONTAB_PATH.write_text(updated, encoding="utf-8")
+            return subprocess.CompletedProcess(
+                args=["sync-daily-schedule"], returncode=0, stdout="host spool updated", stderr=""
+            )
+        return subprocess.run(
+            ["crontab", "-"],
+            input=updated,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception as exc:
+        logger.error("sync_daily_schedule_from_config failed: %s", exc)
         return _empty_result(stderr=str(exc))
 
 
