@@ -88,10 +88,17 @@ class DeploymentContractTests(unittest.TestCase):
     def test_playwright_base_image_argument_is_used(self):
         dockerfile = (SOURCE_ROOT / "Dockerfile.server").read_text(encoding="utf-8")
         self.assertTrue(dockerfile.startswith("ARG PLAYWRIGHT_BASE_IMAGE="))
+        self.assertIn("FROM ${NODE_RUNTIME_IMAGE} AS node-runtime", dockerfile)
         self.assertIn("FROM ${PLAYWRIGHT_BASE_IMAGE}", dockerfile)
+        self.assertIn("COPY --from=node-runtime /usr/local/bin/node", dockerfile)
         self.assertIn("docker.io", dockerfile)
         self.assertIn("node --version", dockerfile)
         self.assertNotIn("github.com/docker/compose", dockerfile)
+
+    def test_docker_build_context_excludes_runtime_data(self):
+        dockerignore = (SOURCE_ROOT / ".dockerignore").read_text(encoding="utf-8")
+        for entry in ("logs/", "config.json", "usersData.json", "webui_settings.json"):
+            self.assertIn(entry, dockerignore)
 
     def test_legacy_unused_entrypoints_are_removed(self):
         self.assertFalse((SOURCE_ROOT / "webui" / "login_sessions.py").exists())

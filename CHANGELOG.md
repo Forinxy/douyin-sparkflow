@@ -2,6 +2,8 @@
 
 ## 2026-07-11
 
+- Fixed the server image to provision Node.js 22 explicitly for protocol mode and excluded runtime logs/configuration from the Docker build context.
+
 - Reworked the Web console into a responsive unified operations dashboard with local Lucide icons, clearer account/target status, and safer confirmation dialogs.
 - Added strong send-confirmation state handling, retryable unconfirmed targets, failure categorization, account cooldowns, and focused manual retry modes.
 - Improved friend-list discovery, persistent browser profiles, Cookie synchronization, and browser/protocol failure persistence.

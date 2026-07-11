@@ -1,5 +1,9 @@
 ARG PLAYWRIGHT_BASE_IMAGE=mcr.microsoft.com/playwright/python:v1.56.0-jammy
+ARG NODE_RUNTIME_IMAGE=node:22-bookworm-slim
+FROM ${NODE_RUNTIME_IMAGE} AS node-runtime
 FROM ${PLAYWRIGHT_BASE_IMAGE}
+
+COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
 
 WORKDIR /app
 
