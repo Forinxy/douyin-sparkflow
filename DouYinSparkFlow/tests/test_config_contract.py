@@ -1,5 +1,7 @@
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +28,21 @@ class ConfigContractTests(unittest.TestCase):
             )
             self.assertFalse(loaded["useProtocolSender"])
             self.assertTrue(loaded["persistentBrowserProfiles"]["enabled"])
+
+    def test_tasks_import_does_not_require_runtime_user_data(self):
+        source_root = Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        env["GITHUB_ACTIONS"] = "true"
+        env.pop("USER_DATA", None)
+        result = subprocess.run(
+            [sys.executable, "-c", "import core.tasks"],
+            cwd=source_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
 
     def test_profile_root_environment_override_wins(self):
         with patch.dict(os.environ, {"SPARKFLOW_BROWSER_PROFILE_ROOT": "/tmp/sparkflow-profiles"}):

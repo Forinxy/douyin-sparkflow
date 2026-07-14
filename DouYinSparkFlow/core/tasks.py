@@ -20,8 +20,6 @@ from utils.config import get_config, get_userData, normalize_unique_id, save_use
 from utils.logger import setup_logger
 
 
-config = get_config()
-user_data = get_userData()
 logger = setup_logger(level=logging.DEBUG)
 debug_artifacts_dir = Path("logs/debug_artifacts")
 debug_artifacts_dir.mkdir(parents=True, exist_ok=True)

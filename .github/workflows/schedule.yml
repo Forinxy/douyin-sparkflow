@@ -32,6 +32,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       - name: Run unit tests
+        env:
+          USER_DATA: "[]"
         run: python -m unittest discover -s tests -v
       - name: Test Douyin accessibility
         run: |

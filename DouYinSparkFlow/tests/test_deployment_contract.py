@@ -15,6 +15,7 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("working-directory: DouYinSparkFlow", text)
         self.assertIn("SPARKFLOW_BROWSER_PROFILE_ROOT", text)
         self.assertIn("SPARKFLOW_MANUAL_RUN", text)
+        self.assertIn('USER_DATA: "[]"', text)
         self.assertIn("path: DouYinSparkFlow/logs/", text)
 
     def test_github_actions_are_pinned_to_commit_shas(self):
