@@ -2748,11 +2748,18 @@ async def runTasks():
     if not runnable_user_data:
         return
 
-    with task_run_lock():
-        protocol_user_data, browser_user_data = _split_sender_modes(active_config, runnable_user_data)
-        if protocol_user_data:
-            await run_protocol_tasks(active_config, protocol_user_data, build_message)
-        await run_browser_tasks(active_config, browser_user_data)
+    try:
+        with task_run_lock():
+            protocol_user_data, browser_user_data = _split_sender_modes(active_config, runnable_user_data)
+            if protocol_user_data:
+                await run_protocol_tasks(active_config, protocol_user_data, build_message)
+            await run_browser_tasks(active_config, browser_user_data)
+    except TaskRunAlreadyInProgress:
+        logger.warning("Skipping task run because another task run is already in progress")
+
+
+class TaskRunAlreadyInProgress(RuntimeError):
+    """Raised when a live task process already owns the global run lock."""
 
 
 @contextmanager
@@ -2791,7 +2798,7 @@ def task_run_lock():
                     pass
                 continue
 
-            raise RuntimeError("another task run is already in progress") from exc
+            raise TaskRunAlreadyInProgress("another task run is already in progress") from exc
 
     try:
         handle.write(f"{os.getpid()}\n")

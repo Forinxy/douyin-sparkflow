@@ -1,4 +1,5 @@
-﻿import errno
+﻿import asyncio
+import errno
 import os
 import tempfile
 import time
@@ -103,6 +104,38 @@ class WebUiSafetyTests(unittest.TestCase):
                 response = client.get(path)
                 self.assertEqual(200, response.status_code, path)
                 self.assertEqual("no-store", response.headers["cache-control"])
+
+    def test_login_desktop_timeout_is_wrapped_as_runtime_error(self):
+        with patch.object(app_module.urllib.request, "urlopen", side_effect=TimeoutError("timed out")):
+            with self.assertRaisesRegex(RuntimeError, "login-desktop unavailable: timed out"):
+                app_module.call_login_desktop("/open-login", method="POST", payload={})
+
+    def test_login_desktop_open_uses_extended_startup_timeout(self):
+        client = TestClient(app_module.app)
+        with (
+            patch.object(app_module, "current_user", return_value="admin"),
+            patch.object(app_module, "validate_csrf", return_value=True),
+            patch.object(app_module, "call_login_desktop", return_value={}) as call_login,
+        ):
+            response = client.post("/login-desktop/open", data={"csrf_token": "test"})
+
+        self.assertEqual(200, response.status_code)
+        call_login.assert_called_once_with("/open-login", method="POST", payload={}, timeout=90)
+
+    def test_websocket_relay_cleans_up_pending_tasks(self):
+        cleaned_up = []
+
+        async def completes():
+            return None
+
+        async def waits_forever():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaned_up.append(True)
+
+        asyncio.run(app_module._run_websocket_relays(completes(), waits_forever()))
+        self.assertEqual([True], cleaned_up)
 
     def test_login_desktop_urls_honor_container_environment(self):
         with (

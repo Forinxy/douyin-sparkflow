@@ -2,6 +2,7 @@ import asyncio
 import os
 import shutil
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -414,18 +415,19 @@ async def collect_www_login_result(page, context):
 
 
 manager = LoginDesktopManager()
-app = FastAPI(title="Douyin Login Desktop")
 
 
-@app.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     await manager.start_idle_monitor()
+    try:
+        yield
+    finally:
+        await manager.stop_idle_monitor()
+        await manager.stop(clear_profile=False)
 
 
-@app.on_event("shutdown")
-async def shutdown():
-    await manager.stop_idle_monitor()
-    await manager.stop(clear_profile=False)
+app = FastAPI(title="Douyin Login Desktop", lifespan=lifespan)
 
 
 @app.get("/health")

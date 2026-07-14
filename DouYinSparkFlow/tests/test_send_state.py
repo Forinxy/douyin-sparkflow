@@ -1,3 +1,4 @@
+import asyncio
 import os
 import unittest
 from datetime import datetime, timezone
@@ -125,6 +126,30 @@ class SendStateTests(unittest.TestCase):
             prepared = tasks._prepare_active_users_for_run(config, [user])
 
         self.assertEqual(["confirmed", "pending"], prepared[0]["targets"])
+
+    def test_overlapping_task_run_is_skipped_without_traceback(self):
+        config = {
+            "multiTask": False,
+            "taskCount": 1,
+            "sendStrategy": {},
+            "messageTemplate": "",
+            "hitokotoTypes": [],
+        }
+        user = {"enabled": True, "username": "demo", "targets": ["friend"]}
+        with (
+            patch.object(tasks, "get_config", return_value=config),
+            patch.object(tasks, "get_userData", return_value=[user]),
+            patch.object(tasks, "_prepare_active_users_for_run", return_value=[user]),
+            patch.object(
+                tasks,
+                "task_run_lock",
+                side_effect=tasks.TaskRunAlreadyInProgress("already running"),
+            ),
+            patch.object(tasks, "run_browser_tasks") as run_browser,
+        ):
+            asyncio.run(tasks.runTasks())
+
+        run_browser.assert_not_called()
 
     def test_message_choice_avoids_previous_and_last_when_possible(self):
         with patch.object(

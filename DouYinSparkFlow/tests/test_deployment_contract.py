@@ -125,6 +125,11 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn('"/creator-micro/" in page.url', server)
         self.assertIn('"qr_ready": qr_ready', server)
 
+    def test_login_desktop_uses_fastapi_lifespan(self):
+        server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
+        self.assertIn("lifespan=lifespan", server)
+        self.assertNotIn("@app.on_event", server)
+
     def test_login_desktop_exposes_cropped_qr_endpoint(self):
         server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
         self.assertIn('@app.get("/qr")', server)

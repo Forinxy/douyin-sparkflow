@@ -259,8 +259,28 @@ def call_login_desktop(path: str, *, method: str = "GET", payload: dict | None =
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"login-desktop API error {exc.code}: {body}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"login-desktop unavailable: {exc.reason}") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise RuntimeError(f"login-desktop unavailable: {reason}") from exc
+
+
+async def _run_websocket_relays(*coroutines):
+    tasks = {asyncio.create_task(coroutine) for coroutine in coroutines}
+    try:
+        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for result in results:
+            if isinstance(result, (ConnectionClosed, WebSocketDisconnect, asyncio.CancelledError)):
+                continue
+            if isinstance(result, BaseException):
+                raise result
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 def save_exported_login_result(login_result: dict, *, relogin_unique_id: str = "", display_name: str = "") -> tuple[dict, str]:
@@ -980,16 +1000,10 @@ def create_app():
                         else:
                             await websocket.send_text(message)
 
-                relays = {
-                    asyncio.create_task(client_to_upstream()),
-                    asyncio.create_task(upstream_to_client()),
-                }
-                done, pending = await asyncio.wait(relays, return_when=asyncio.FIRST_COMPLETED)
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
-                for task in done:
-                    task.result()
+                await _run_websocket_relays(
+                    client_to_upstream(),
+                    upstream_to_client(),
+                )
         except (ConnectionClosed, WebSocketDisconnect):
             pass
         except Exception as exc:
@@ -1054,7 +1068,7 @@ def create_app():
         if not validate_csrf(request, str(form.get("csrf_token", ""))):
             return JSONResponse({"ok": False, "error": "Invalid CSRF token"}, status_code=403)
         try:
-            call_login_desktop("/open-login", method="POST", payload={})
+            call_login_desktop("/open-login", method="POST", payload={}, timeout=90)
             return JSONResponse({"ok": True, "public_url": login_desktop_public_url(request)})
         except RuntimeError as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
