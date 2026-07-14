@@ -16,6 +16,8 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("SPARKFLOW_BROWSER_PROFILE_ROOT", text)
         self.assertIn("SPARKFLOW_MANUAL_RUN", text)
         self.assertIn('USER_DATA: "[]"', text)
+        self.assertIn("run_task:", text)
+        self.assertGreaterEqual(text.count("github.event_name == 'schedule' || inputs.run_task"), 2)
         self.assertIn("path: DouYinSparkFlow/logs/", text)
 
     def test_github_actions_are_pinned_to_commit_shas(self):

@@ -2,6 +2,12 @@ name: DouYin Spark Flow Schedule Run
 
 on:
   workflow_dispatch:
+    inputs:
+      run_task:
+        description: "Run the real Douyin send task after checks"
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "0 2 * * *" # 10:00 Asia/Shanghai
 
@@ -40,8 +46,10 @@ jobs:
           status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://creator.douyin.com/)"
           test "$status" != "000"
       - name: Ensure Chromium is installed
+        if: ${{ github.event_name == 'schedule' || inputs.run_task }}
         run: playwright install chromium --with-deps --only-shell
       - name: Run DouYin Spark Flow
+        if: ${{ github.event_name == 'schedule' || inputs.run_task }}
         env:
           USER_DATA: ${{ secrets.USER_DATA }}
           SPARKFLOW_BROWSER_PROFILE_ROOT: ${{ runner.temp }}/douyin-sparkflow-browser-profiles
