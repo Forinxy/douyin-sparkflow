@@ -66,6 +66,7 @@ services:
     image: douyin-sparkflow:local
     container_name: login-desktop
     restart: unless-stopped
+    init: true
     depends_on:
       - proxy
     environment:

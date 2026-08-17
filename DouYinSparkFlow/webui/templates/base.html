@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark light">
     <title>{% block title %}续火花{% endblock %}</title>
-    <link rel="stylesheet" href="/static/app.css?v=20260710">
+    <link rel="stylesheet" href="/static/app.css?v=20260817">
   </head>
   <body data-page="{% block page_key %}dashboard{% endblock %}">
     <header class="mobile-topbar">
@@ -49,9 +49,11 @@
               <a class="nav-item {% if current_nav|trim == 'send_console' %}active{% endif %}" href="/ops/send-console">
                 <i data-lucide="send"></i><span>发送控制台</span>
               </a>
+              {% if is_admin %}
               <a class="nav-item {% if current_nav|trim == 'logs' %}active{% endif %}" href="/ops/logs">
                 <i data-lucide="scroll-text"></i><span>发送记录</span>
               </a>
+              {% endif %}
             </div>
           </section>
 
@@ -64,15 +66,21 @@
               <a class="nav-item" href="/#interactive-login-section">
                 <i data-lucide="scan-line"></i><span>登录抖音账号</span>
               </a>
+{% if is_admin %}
               <a class="nav-item" href="/#config-panel">
                 <i data-lucide="sliders-horizontal"></i><span>运行配置</span>
               </a>
+              {% endif %}
+{% if is_admin %}
               <a class="nav-item" href="/#ops-panel">
                 <i data-lucide="wrench"></i><span>运维操作</span>
               </a>
+              {% endif %}
+{% if is_admin %}
               <a class="nav-item" href="/#settings-panel">
                 <i data-lucide="settings"></i><span>系统设置</span>
               </a>
+              {% endif %}
             </div>
           </section>
         </nav>
@@ -82,7 +90,7 @@
             <span class="user-avatar">{{ (current_user or "A")[:1] }}</span>
             <span class="user-copy">
               <strong>{{ current_user or "未登录" }}</strong>
-              <small>管理员</small>
+              <small>{% if is_admin %}管理员{% else %}普通用户{% endif %}</small>
             </span>
           </div>
           <form method="post" action="/logout">
@@ -131,7 +139,7 @@
     </dialog>
 
     <script defer src="/static/lucide.min.js?v=20260710"></script>
-    <script defer src="/static/app.js?v=20260710"></script>
+    <script defer src="/static/app.js?v=20260817"></script>
     {% block scripts %}{% endblock %}
   </body>
 </html>

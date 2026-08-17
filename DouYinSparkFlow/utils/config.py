@@ -3,6 +3,8 @@ import logging
 import os
 import secrets
 import sys
+import tempfile
+import uuid
 from copy import deepcopy
 from enum import Enum
 from pathlib import Path
@@ -176,7 +178,20 @@ def _load_json_file(path, defaults=None):
 
 
 def _save_json_file(path, data):
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    finally:
+        try:
+            os.unlink(temp_name)
+        except FileNotFoundError:
+            pass
 
 
 def get_config(force_reload=False):
@@ -230,6 +245,7 @@ def upsert_user_account(unique_id, username, cookies, targets, extra=None):
     unique_id = normalize_unique_id(unique_id)
     accounts = get_userData(force_reload=True)
     payload = {
+        "account_ref": f"acc-{uuid.uuid4().hex}",
         "unique_id": unique_id,
         "username": username,
         "cookies": cookies,
@@ -240,11 +256,12 @@ def upsert_user_account(unique_id, username, cookies, targets, extra=None):
 
     for account in accounts:
         if normalize_unique_id(account.get("unique_id")) == unique_id:
+            payload["account_ref"] = account.get("account_ref") or payload["account_ref"]
             if "enabled" not in payload:
                 payload["enabled"] = account.get("enabled", True)
             account.update(payload)
             save_userData(accounts)
-            return payload
+            return account
 
     if "enabled" not in payload:
         payload["enabled"] = True

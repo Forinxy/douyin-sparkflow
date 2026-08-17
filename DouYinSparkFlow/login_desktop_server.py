@@ -44,6 +44,7 @@ GENERIC_WWW_NAMES = {
 class LoginDesktopManager:
     def __init__(self):
         self._lock = asyncio.Lock()
+        self._page_operation_lock = asyncio.Lock()
         self.playwright = None
         self.context = None
         self.page = None
@@ -242,13 +243,14 @@ class LoginDesktopManager:
 
         if page:
             current_url = page.url
-            try:
-                result = await collect_login_result(page, self.context, timeout_ms=1000)
-                logged_in = True
-                username = result["username"]
-                unique_id = result["unique_id"]
-            except Exception:
-                pass
+            if not self._page_operation_lock.locked():
+                try:
+                    result = await collect_login_result(page, self.context, timeout_ms=1000)
+                    logged_in = True
+                    username = result["username"]
+                    unique_id = result["unique_id"]
+                except Exception:
+                    pass
 
         payload = {
             "running": True,
@@ -263,30 +265,73 @@ class LoginDesktopManager:
         return dict(payload)
 
     async def open_login(self):
-        await self.refresh_login_qr()
+        self.mark_activity()
+        try:
+            await asyncio.wait_for(self._page_operation_lock.acquire(), timeout=5)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("login page is busy; retry shortly") from exc
+        try:
+            page = await self._get_active_page()
+            if page.url.startswith(REMOTE_LOGIN_URL):
+                return {"ok": True, "url": page.url}
+            refresh_url = f"{REMOTE_LOGIN_URL}?qr_refresh={int(time.time() * 1000)}"
+            try:
+                await page.goto(refresh_url, wait_until="commit", timeout=30000)
+            except Exception:
+                await self.stop(clear_profile=False)
+                await self.start()
+                page = await self._get_active_page()
+                await page.goto(refresh_url, wait_until="commit", timeout=30000)
+            return {"ok": True, "url": page.url}
+        finally:
+            self._page_operation_lock.release()
 
     async def refresh_login_qr(self):
         self.mark_activity()
+        try:
+            await asyncio.wait_for(self._page_operation_lock.acquire(), timeout=5)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("login page is busy; retry shortly") from exc
+        try:
+            return await self._refresh_login_qr_locked()
+        finally:
+            self._page_operation_lock.release()
+
+    async def _refresh_login_qr_locked(self):
         refresh_url = f"{REMOTE_LOGIN_URL}?qr_refresh={int(time.time() * 1000)}"
         try:
             page = await self._get_active_page()
-            await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(refresh_url, wait_until="commit", timeout=30000)
         except Exception:
             await self.reset()
             page = await self._get_active_page()
-            await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(refresh_url, wait_until="commit", timeout=30000)
 
         deadline = asyncio.get_running_loop().time() + 45
         logged_in = False
         qr_ready = False
         while asyncio.get_running_loop().time() < deadline:
-            qr = page.locator('img[class*="qrcode"]').first
-            try:
-                if await qr.count() and await qr.is_visible():
-                    qr_ready = True
+            for selector in (
+                'img[class*="qrcode"]',
+                'img[src^="data:image/png;base64"]',
+            ):
+                candidates = page.locator(selector)
+                for index in range(await candidates.count()):
+                    qr = candidates.nth(index)
+                    try:
+                        if not await qr.is_visible():
+                            continue
+                        box = await qr.bounding_box()
+                        if not box or box["width"] < 120 or box["height"] < 120:
+                            continue
+                        ratio = box["width"] / max(1, box["height"])
+                        if 0.8 <= ratio <= 1.25:
+                            qr_ready = True
+                            break
+                    except Exception:
+                        pass
+                if qr_ready:
                     break
-            except Exception:
-                pass
 
             if "/creator-micro/" in page.url:
                 logged_in = True
@@ -452,6 +497,12 @@ async def reset():
     return {"ok": True}
 
 
+@app.post("/close")
+async def close():
+    await manager.stop(clear_profile=True)
+    return {"ok": True}
+
+
 @app.post("/refresh-qr")
 async def refresh_qr():
     return await manager.refresh_login_qr()
@@ -472,6 +523,8 @@ async def export():
 
 @app.get("/qr")
 async def login_qr():
+    if manager._page_operation_lock.locked():
+        raise HTTPException(status_code=503, detail="login page is busy; retry shortly")
     page = await manager._get_active_page()
     expired = await page.locator('[class*="qrcode_expired"]').count()
     if expired and await page.locator('[class*="qrcode_expired"]').first.is_visible():
@@ -499,7 +552,7 @@ async def login_qr():
                 )
             except Exception:
                 continue
-    raise HTTPException(status_code=404, detail="login QR code is not ready")
+    raise HTTPException(status_code=202, detail="login QR code is still starting", headers={"Retry-After": "2"})
 
 
 @app.get("/debug/screenshot")

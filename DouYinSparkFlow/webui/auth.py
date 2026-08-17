@@ -14,8 +14,10 @@ def hash_password(password, salt=None):
 def verify_password(password, stored_hash):
     if not stored_hash or "$" not in stored_hash:
         return False
-
-    algorithm, salt, digest = stored_hash.split("$", 2)
+    try:
+        algorithm, salt, digest = stored_hash.split("$", 2)
+    except ValueError:
+        return False
     if algorithm != "pbkdf2_sha256":
         return False
     candidate = hash_password(password, salt=salt)
@@ -39,9 +41,12 @@ def update_admin_password(password):
     return save_app_settings(settings)
 
 
-def issue_session(request, username):
+def issue_session(request, username, *, role="admin", account_refs=None):
     request.session.clear()
     request.session["user"] = username
+    request.session["role"] = role
+    request.session["account_refs"] = list(account_refs or [])
+    request.session["session_id"] = secrets.token_urlsafe(24)
     request.session["csrf_token"] = secrets.token_urlsafe(24)
 
 
@@ -51,6 +56,44 @@ def clear_session(request):
 
 def current_user(request):
     return request.session.get("user")
+
+
+def current_principal(request):
+    """Resolve the current session to live role and account assignments."""
+    username = current_user(request)
+    if not username:
+        return None
+    session_id = request.session.get("session_id", "")
+    role = request.session.get("role")
+    admin_username = str(get_app_settings().get("admin_username", "admin")).strip() or "admin"
+    if role == "admin" or (role is None and username.casefold() == admin_username.casefold()):
+        return {
+            "username": admin_username,
+            "role": "admin",
+            "account_refs": [],
+            "session_id": session_id,
+            "enabled": True,
+        }
+
+    try:
+        from webui.users import find_web_user
+        user = find_web_user(username)
+    except Exception:
+        user = None
+    if user and user.get("enabled", True):
+        return {
+            "username": user["username"],
+            "role": "user",
+            "account_refs": list(user.get("account_refs", [])),
+            "session_id": session_id,
+            "enabled": True,
+        }
+    return None
+
+
+def is_admin(request):
+    principal = current_principal(request)
+    return bool(principal and principal.get("role") == "admin")
 
 
 def csrf_token(request):

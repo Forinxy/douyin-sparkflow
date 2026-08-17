@@ -1625,6 +1625,13 @@ def _manual_run_unsent_only():
     return _is_manual_run() and os.getenv("SPARKFLOW_MANUAL_UNSENT_ONLY") == "1"
 
 
+def _requested_account_refs():
+    raw = os.getenv("SPARKFLOW_ACCOUNT_REFS")
+    if raw is None:
+        return None
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
 def _unsent_retry_max_attempts():
     raw_value = str(os.getenv("SPARKFLOW_UNSENT_RETRY_MAX_ATTEMPTS") or "3").strip()
     try:
@@ -2719,6 +2726,9 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
 async def runTasks():
     active_config = get_config(force_reload=True)
     all_user_data = get_userData(force_reload=True)
+    requested_refs = _requested_account_refs()
+    if requested_refs is not None:
+        all_user_data = [user for user in all_user_data if user.get("account_ref") in requested_refs]
     active_user_data = [user for user in all_user_data if user.get("enabled", True)]
     disabled_user_data = [user for user in all_user_data if not user.get("enabled", True)]
 

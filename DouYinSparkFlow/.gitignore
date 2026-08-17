@@ -7,3 +7,6 @@ logs/
 usersData.json
 webui_settings.json
 config.json
+
+webui_users.json
+.migration-backups/

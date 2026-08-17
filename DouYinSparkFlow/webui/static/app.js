@@ -339,58 +339,82 @@
   const section = document.getElementById("interactive-login-section");
   const csrfToken = root.dataset.csrfToken || "";
   const publicUrl = root.dataset.publicUrl || "";
-  const runtimeState = document.getElementById(
-    "login-desktop-runtime-state",
-  );
+  const runtimeState = document.getElementById("login-desktop-runtime-state");
   const statusText = document.getElementById("login-desktop-status-text");
   const frame = document.querySelector("[data-login-frame]");
   const qrImage = document.querySelector("[data-login-qr]");
   const qrStatus = document.querySelector("[data-login-qr-status]");
   let timer = null;
+  let heartbeatTimer = null;
+  let countdownTimer = null;
   let qrRefreshTimer = null;
+  let workspace = { state: "closed", active: false, position: 0, ticket: "" };
 
   const setStatus = (text, tone = "") => {
     if (statusText) statusText.textContent = text;
     if (runtimeState) {
       runtimeState.className = `pill${tone ? ` ${tone}` : ""}`;
-      runtimeState.textContent =
-        tone === "success" ? "已登录" : tone === "danger" ? "异常" : "待登录";
+      runtimeState.textContent = tone === "success" ? "使用中" : tone === "danger" ? "异常" : tone === "warning" ? "排队中" : "已关闭";
     }
   };
 
   const postForm = async (url, payload = {}) => {
     const formData = new FormData();
     formData.set("csrf_token", csrfToken);
-    Object.entries(payload).forEach(([key, value]) => {
-      formData.set(key, String(value ?? ""));
-    });
-    const response = await fetch(url, {
-      method: "POST",
-      body: formData,
-      credentials: "same-origin",
-    });
+    Object.entries(payload).forEach(([key, value]) => formData.set(key, String(value ?? "")));
+    const response = await fetch(url, { method: "POST", body: formData, credentials: "same-origin" });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || data.ok === false) {
-      throw new Error(data.error || `请求失败：${response.status}`);
-    }
+    if (!response.ok || data.ok === false) throw new Error(data.error || `请求失败：${response.status}`);
     return data;
   };
 
-  const loadFrame = () => {
-    if (frame && frame.dataset.loaded !== "1" && frame.dataset.src) {
+  const loadFrame = (force = false) => {
+    if (frame && (force || frame.dataset.loaded !== "1") && frame.dataset.src) {
       frame.src = frame.dataset.src;
       frame.dataset.loaded = "1";
     }
   };
 
-  const refreshLoginQr = async (delay = 0, retries = 8) => {
-    if (!qrImage) return;
+  const closeFrame = () => {
+    if (!frame) return;
+    frame.removeAttribute("src");
+    frame.dataset.loaded = "0";
+  };
+
+  const renderWorkspace = (next) => {
+    workspace = next || { state: "closed", active: false, position: 0, ticket: "" };
+    if (workspace.state === "queued") {
+      setStatus(`登录工作区排队中，前面还有 ${Math.max(0, Number(workspace.position || 1) - 1)} 人。`, "warning");
+      if (qrStatus) qrStatus.textContent = "排队成功，轮到你后会自动打开登录二维码。";
+      return;
+    }
+    if (workspace.state === "resetting") {
+      setStatus("正在清理上一位用户的登录环境，请稍候。", "warning");
+      return;
+    }
+    if (workspace.state === "active" && workspace.active) {
+      const remaining = Math.max(0, Number(workspace.remaining_seconds || 0));
+      const tone = remaining > 0 && remaining <= 60 ? "warning" : "success";
+      setStatus(`登录工作区已分配给当前会话，剩余 ${remaining} 秒。完成扫码后请保存登录态。`, tone);
+      return;
+    }
+    setStatus("登录工作区当前关闭。请从账号卡片点击“重新登录”。");
+  };
+
+  const refreshLoginQr = async (delay = 0, retries = 40) => {
+    if (!qrImage || workspace.state !== "active" || !workspace.active) return;
     window.clearTimeout(qrRefreshTimer);
     qrRefreshTimer = window.setTimeout(async () => {
       if (qrStatus) qrStatus.textContent = "正在读取登录二维码...";
-      const url = `/login-desktop/qr?t=${Date.now()}`;
       try {
-        const response = await fetch(url, { credentials: "same-origin", cache: "no-store" });
+        const response = await fetch(`/login-desktop/qr?t=${Date.now()}`, { credentials: "same-origin", cache: "no-store" });
+        if (response.status === 202) {
+          if (retries > 1 && workspace.state === "active") {
+            if (qrStatus) qrStatus.textContent = "浏览器正在生成二维码，继续等待...";
+            refreshLoginQr(1400, retries - 1);
+          }
+          return;
+        }
         if (!response.ok) throw new Error(String(response.status));
         const blob = await response.blob();
         const previous = qrImage.dataset.objectUrl || "";
@@ -401,62 +425,73 @@
         if (previous) URL.revokeObjectURL(previous);
         if (qrStatus) qrStatus.textContent = "二维码已加载。如果过期，点击刷新。";
       } catch {
-        if (retries > 1) {
+        if (retries > 1 && workspace.state === "active") {
           if (qrStatus) qrStatus.textContent = "登录页正在加载，继续等待二维码...";
           refreshLoginQr(1400, retries - 1);
         } else if (qrStatus) {
-          qrStatus.textContent = "二维码还未准备好，请点击刷新重试。";
+          qrStatus.textContent = "二维码还未准备好，请确认自己已经获得登录工作区。";
         }
       }
     }, delay);
   };
 
   const pollStatus = async () => {
-    if (document.visibilityState !== "visible" || (section && !section.open)) {
-      return;
-    }
+    if (document.visibilityState !== "visible") return;
     try {
-      const response = await fetch("/login-desktop/status", {
-        credentials: "same-origin",
-        cache: "no-store",
-      });
+      const statusUrl = workspace.state === "active" ? "/login-desktop/status" : "/login-desktop/workspace-status";
+      const response = await fetch(statusUrl, { credentials: "same-origin", cache: "no-store" });
       const data = await response.json();
       if (!response.ok || data.ok === false) {
-        setStatus(
-          data.error || "登录工作区不可用，请检查 login-desktop 服务。",
-          "danger",
-        );
+        setStatus(data.error || "登录工作区不可用，请检查 login-desktop 服务。", "danger");
         return;
       }
-      if (data.logged_in) {
-        setStatus(`当前浏览器已登录：${data.username}`, "success");
+      renderWorkspace(data.workspace);
+      if (workspace.state === "active" && workspace.active) {
+        loadFrame();
+        if (data.logged_in) setStatus(`当前浏览器已登录：${data.username}，请保存登录态。`, "success");
       } else {
-        setStatus("当前浏览器尚未登录，可打开工作区开始人工登录。");
+        closeFrame();
       }
     } catch (error) {
       setStatus(`状态检查失败：${error.message}`, "danger");
     }
   };
 
+  const heartbeat = async () => {
+    if (workspace.state !== "active" || !workspace.active || !workspace.ticket) return;
+    try {
+      const data = await postForm("/login-desktop/heartbeat", { ticket: workspace.ticket });
+      renderWorkspace(data.workspace);
+    } catch (error) {
+      workspace = { state: "closed", active: false, position: 0, ticket: "" };
+      closeFrame();
+      setStatus(`登录工作区已释放：${error.message}`, "danger");
+    }
+  };
+
   document.querySelectorAll(".login-desktop-open").forEach((button) => {
     button.addEventListener("click", async () => {
-      // Mobile browsers block window.open after an awaited request. Open the
-      // authenticated same-origin workspace while the click gesture is active.
-      const popup = publicUrl
-        ? window.open(publicUrl, "_blank", "noopener")
-        : null;
+      if (section) section.open = true;
+      const popup = publicUrl ? window.open("about:blank", "_blank", "noopener") : null;
       try {
-        await postForm("/login-desktop/open");
-        loadFrame();
-        refreshLoginQr(1800);
-        if (!popup && frame) {
-          frame.scrollIntoView({ behavior: "smooth", block: "start" });
-          setStatus("弹窗被浏览器拦截，已在当前页面加载登录工作区。");
-        } else {
-          setStatus("请在登录工作区完成登录，然后返回此页保存登录态。");
+        const reloginUniqueId = button.dataset.reloginUniqueId || "";
+        const mode = button.dataset.loginMode || (reloginUniqueId ? "relogin" : "add");
+        const data = await postForm("/login-desktop/open", {
+          mode,
+          ...(reloginUniqueId ? { relogin_unique_id: reloginUniqueId } : {}),
+        });
+        renderWorkspace(data.workspace);
+        if (data.state === "queued") {
+          if (popup && !popup.closed) popup.close();
+          return;
         }
+        if (popup && !popup.closed) popup.location.href = publicUrl;
+        loadFrame(true);
+        refreshLoginQr(500);
+        if (!popup && frame) frame.scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (error) {
-        setStatus(`打开登录工作区失败：${error.message}`, "danger");
+        if (popup && !popup.closed) popup.close();
+        setStatus(`申请登录工作区失败：${error.message}`, "danger");
       }
     });
   });
@@ -464,10 +499,9 @@
   document.querySelectorAll("[data-refresh-login-qr]").forEach((button) => {
     button.addEventListener("click", async () => {
       button.disabled = true;
-      if (qrStatus) qrStatus.textContent = "正在让抖音重新生成二维码...";
       try {
-        await postForm("/login-desktop/qr/refresh");
-        refreshLoginQr(900);
+        await postForm("/login-desktop/qr/refresh", { ticket: workspace.ticket });
+        refreshLoginQr(500);
       } catch (error) {
         if (qrStatus) qrStatus.textContent = `刷新二维码失败：${error.message}`;
       } finally {
@@ -479,10 +513,10 @@
   document.querySelectorAll(".login-desktop-save").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
-        const data = await postForm("/login-desktop/save", {
-          relogin_unique_id: button.dataset.reloginUniqueId || "",
-        });
+        const data = await postForm("/login-desktop/save", { relogin_unique_id: button.dataset.reloginUniqueId || "" });
+        renderWorkspace(data.workspace);
         setStatus(`已保存登录账号：${data.account?.username || ""}`, "success");
+        closeFrame();
         window.setTimeout(() => window.location.reload(), 800);
       } catch (error) {
         setStatus(`保存登录账号失败：${error.message}`, "danger");
@@ -490,14 +524,28 @@
     });
   });
 
+  document.querySelectorAll(".login-desktop-close").forEach((button) => {
+    button.addEventListener("click", async () => {
+      try {
+        const data = await postForm("/login-desktop/close");
+        renderWorkspace(data.workspace);
+        closeFrame();
+        if (qrImage) qrImage.hidden = true;
+      } catch (error) {
+        setStatus(`关闭登录界面失败：${error.message}`, "danger");
+      }
+    });
+  });
+
   document.querySelectorAll(".login-desktop-reset").forEach((button) => {
     button.addEventListener("click", async () => {
       try {
-        await postForm("/login-desktop/reset");
-        setStatus("登录工作区已重置，正在重新初始化。");
-        await pollStatus();
+        const data = await postForm("/login-desktop/reset");
+        renderWorkspace(data.workspace);
+        closeFrame();
+        if (qrImage) qrImage.hidden = true;
       } catch (error) {
-        setStatus(`重置登录工作区失败：${error.message}`, "danger");
+        setStatus(`结束登录流程失败：${error.message}`, "danger");
       }
     });
   });
@@ -513,16 +561,21 @@
     });
   });
 
-  if (section) {
-    section.addEventListener("toggle", () => {
-      if (section.open) {
-        loadFrame();
-        pollStatus();
-      }
-    });
-  }
+  if (section) section.addEventListener("toggle", () => { if (section.open) pollStatus(); });
+  pollStatus();
   timer = window.setInterval(pollStatus, 5000);
-  window.addEventListener("pagehide", () => window.clearInterval(timer));
+  heartbeatTimer = window.setInterval(heartbeat, 5000);
+  countdownTimer = window.setInterval(() => {
+    if (workspace.state !== "active" || !workspace.active) return;
+    workspace.remaining_seconds = Math.max(0, Number(workspace.remaining_seconds || 0) - 1);
+    const remaining = workspace.remaining_seconds;
+    setStatus(`登录工作区已分配给当前会话，剩余 ${remaining} 秒。完成扫码后请保存登录态。`, remaining <= 60 ? "warning" : "success");
+  }, 1000);
+  window.addEventListener("pagehide", () => {
+    window.clearInterval(timer);
+    window.clearInterval(heartbeatTimer);
+    window.clearInterval(countdownTimer);
+  });
 })();
 
 (() => {

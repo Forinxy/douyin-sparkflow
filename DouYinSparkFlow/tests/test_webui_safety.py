@@ -11,10 +11,23 @@ from fastapi.testclient import TestClient
 
 from core import tasks
 from webui import app as app_module
+from webui import login_lock
 from webui import ops
 
 
 class WebUiSafetyTests(unittest.TestCase):
+    def setUp(self):
+        try:
+            login_lock.LOCK_PATH.unlink()
+        except FileNotFoundError:
+            pass
+
+    def tearDown(self):
+        try:
+            login_lock.LOCK_PATH.unlink()
+        except FileNotFoundError:
+            pass
+
     def test_windows_invalid_pid_probe_is_treated_as_dead(self):
         error = OSError(errno.EINVAL, "invalid pid")
         error.winerror = 87
@@ -22,6 +35,19 @@ class WebUiSafetyTests(unittest.TestCase):
             self.assertFalse(ops._pid_is_alive(999999))
         with patch.object(tasks.os, "kill", side_effect=error):
             self.assertFalse(tasks._pid_is_alive(999999))
+
+    def test_missing_optional_runtime_tools_do_not_log_warnings(self):
+        with (
+            patch.object(ops.subprocess, "run", side_effect=FileNotFoundError("missing")),
+            patch.object(ops.logger, "warning") as warning,
+            patch.object(ops.logger, "debug") as debug,
+        ):
+            result = ops.run_command(["docker", "ps"])
+            self.assertEqual(1, result.returncode)
+            ops.read_crontab()
+
+        warning.assert_not_called()
+        self.assertGreaterEqual(debug.call_count, 2)
 
     def test_stale_lock_inspection_does_not_delete_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -183,6 +209,8 @@ class WebUiSafetyTests(unittest.TestCase):
 
         with (
             patch.object(app_module, "current_user", return_value="admin"),
+            patch.object(app_module, "get_login_lock", return_value={"username": "admin", "session_id": ""}),
+            patch.object(app_module, "owns_login_lock", return_value=True),
             patch.object(
                 app_module,
                 "fetch_login_desktop_asset",
@@ -205,6 +233,8 @@ class WebUiSafetyTests(unittest.TestCase):
         upstream.read.return_value = b"fake-png"
         with (
             patch.object(app_module, "current_user", return_value="admin"),
+            patch.object(app_module, "get_login_lock", return_value={"username": "admin", "session_id": ""}),
+            patch.object(app_module, "owns_login_lock", return_value=True),
             patch.object(app_module.urllib.request, "urlopen", return_value=upstream),
         ):
             response = client.get("/login-desktop/qr")
@@ -225,8 +255,10 @@ class WebUiSafetyTests(unittest.TestCase):
         block_start = script.index('document.querySelectorAll(".login-desktop-open")')
         block_end = script.index('document.querySelectorAll(".login-desktop-save")', block_start)
         block = script[block_start:block_end]
-        self.assertLess(block.index("window.open(publicUrl"), block.index('await postForm("/login-desktop/open")'))
-        self.assertIn("refreshLoginQr(1800)", block)
+        self.assertLess(block.index('window.open("about:blank"'), block.index('postForm("/login-desktop/open"'))
+        self.assertIn("refreshLoginQr(500)", block)
+        self.assertIn('data.state === "queued"', block)
+        self.assertIn("renderWorkspace(data.workspace)", block)
         self.assertIn("retries - 1", script)
         self.assertIn('/login-desktop/qr/refresh', script)
 

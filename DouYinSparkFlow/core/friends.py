@@ -141,7 +141,21 @@ async def _wait_for_first_friend_or_empty(page):
     return False
 
 
+async def _wait_for_chat_or_login(page, timeout_seconds=30):
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        await _ensure_logged_in(page)
+        try:
+            if await page.locator("#sub-app").count() > 0:
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+    raise RuntimeError("chat page did not load within timeout")
+
+
 async def collect_friend_names(page):
+    await _wait_for_chat_or_login(page)
     await _click_friends_tab(page)
     await asyncio.sleep(1)
 
@@ -217,12 +231,10 @@ async def fetch_account_friends(account):
         context.set_default_timeout(120000)
         page = await context.new_page()
 
-        await page.goto("https://creator.douyin.com/", wait_until="domcontentloaded", timeout=60000)
         await context.add_cookies(cookies)
-        await page.goto(CHAT_PAGE_URL, wait_until="domcontentloaded", timeout=60000)
-        await asyncio.sleep(2)
+        await page.goto(CHAT_PAGE_URL, wait_until="commit", timeout=30000)
+        await asyncio.sleep(1)
 
-        await _ensure_logged_in(page)
         friends = await collect_friend_names(page)
         return friends
     except RuntimeError:

@@ -259,7 +259,11 @@ def run_command(args, cwd=None, timeout=120, check=False):
             timeout=timeout,
         )
     except FileNotFoundError:
-        logger.warning("Command not found: %s", args[0] if args else args)
+        # Docker and cron are optional integration points when the UI is run
+        # directly on a developer workstation (especially on Windows). A
+        # status probe must not turn their absence into a warning on every
+        # dashboard refresh.
+        logger.debug("Optional command not found: %s", args[0] if args else args)
         return _empty_result()
     except subprocess.TimeoutExpired:
         logger.warning("Command timed out: %s", args)
@@ -359,7 +363,7 @@ def get_task_container_rows():
         return []
 
 
-def run_task_now(*, unsent_only=False, failed_only=False, force_all=False):
+def run_task_now(*, unsent_only=False, failed_only=False, force_all=False, account_refs=None):
     try:
         lock_status = task_run_lock_status()
         if lock_status.get("running"):
@@ -376,6 +380,8 @@ def run_task_now(*, unsent_only=False, failed_only=False, force_all=False):
             "SPARKFLOW_MANUAL_RUN": "1",
             "PYTHONUNBUFFERED": "1",
         }
+        if account_refs is not None:
+            run_env["SPARKFLOW_ACCOUNT_REFS"] = ",".join(sorted({str(ref).strip() for ref in account_refs if str(ref).strip()}))
         if force_all:
             run_env["SPARKFLOW_MANUAL_FORCE_ALL"] = "1"
         elif failed_only:
@@ -402,12 +408,12 @@ def run_task_now(*, unsent_only=False, failed_only=False, force_all=False):
         return -1
 
 
-def run_failed_retry_now():
-    return run_task_now(failed_only=True)
+def run_failed_retry_now(*, account_refs=None):
+    return run_task_now(failed_only=True, account_refs=account_refs)
 
 
-def run_unsent_retry_now():
-    return run_task_now(unsent_only=True)
+def run_unsent_retry_now(*, account_refs=None):
+    return run_task_now(unsent_only=True, account_refs=account_refs)
 
 
 def refresh_proxy():
@@ -447,6 +453,12 @@ def read_crontab():
         if result.returncode != 0:
             return ""
         return result.stdout
+    except FileNotFoundError:
+        # Native Windows installs do not provide ``crontab``. The caller can
+        # treat an unavailable scheduler as an empty schedule and still serve
+        # the rest of the dashboard.
+        logger.debug("Optional command not found: crontab")
+        return ""
     except Exception as exc:
         logger.warning("read_crontab failed: %s", exc)
         return ""
@@ -927,8 +939,13 @@ def _orphan_records(account, configured_targets):
     return orphan_history, orphan_failure
 
 
-def get_send_console_snapshot():
-    accounts = [account for account in get_userData(force_reload=True) if account.get("enabled", True)]
+def get_send_console_snapshot(account_refs=None):
+    allowed_refs = None if account_refs is None else {str(ref).strip() for ref in account_refs}
+    accounts = [
+        account
+        for account in get_userData(force_reload=True)
+        if account.get("enabled", True) and (allowed_refs is None or account.get("account_ref") in allowed_refs)
+    ]
     send_window = _normalize_send_window()
     now = datetime.now(_schedule_timezone())
 
@@ -1049,6 +1066,7 @@ def get_send_console_snapshot():
 
         account_rows.append(
             {
+                "account_ref": str(account.get("account_ref") or ""),
                 "unique_id": str(account.get("unique_id") or ""),
                 "username": account.get("username") or "",
                 "total_targets": len(configured_targets),
@@ -1100,8 +1118,8 @@ def get_send_console_snapshot():
     }
 
 
-def get_overview_snapshot():
-    send_console = get_send_console_snapshot()
+def get_overview_snapshot(account_refs=None):
+    send_console = get_send_console_snapshot(account_refs=account_refs)
     summary = dict(send_console["summary"])
     accounts = []
     for row in send_console["accounts"]:
@@ -1154,13 +1172,13 @@ def _check_image_present():
         return False
 
 
-def get_ops_snapshot():
+def get_ops_snapshot(account_refs=None):
     """Collect operational metrics for the dashboard.
 
     Every external call is individually guarded so the dashboard always
     renders, even when Docker or crontab are not available.
     """
-    send_console = get_send_console_snapshot()
+    send_console = get_send_console_snapshot(account_refs=account_refs)
     return {
         "compose_root": str(compose_root()),
         "compose_file": str(compose_file_path() or ""),

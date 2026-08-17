@@ -44,6 +44,11 @@ class ConfigContractTests(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stderr)
 
+    def test_default_schedule_timezone_resolves_without_fallback(self):
+        with patch.dict(os.environ, {"SPARKFLOW_TIMEZONE": ""}, clear=False):
+            schedule_timezone = tasks._schedule_timezone()
+        self.assertEqual("Asia/Shanghai", getattr(schedule_timezone, "key", None))
+
     def test_profile_root_environment_override_wins(self):
         with patch.dict(os.environ, {"SPARKFLOW_BROWSER_PROFILE_ROOT": "/tmp/sparkflow-profiles"}):
             normalized = tasks._normalize_persistent_profile_config(config_module.DEFAULT_CONFIG)

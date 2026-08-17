@@ -15,3 +15,6 @@ DouYinSparkFlow/core/protocol_sender_debug.mjs
 DouYinSparkFlow/**/__pycache__/
 DouYinSparkFlow/**/*.pyc
 DouYinSparkFlow/config.json
+
+.migration-backups/
+DouYinSparkFlow/webui_users.json

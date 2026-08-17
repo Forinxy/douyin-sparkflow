@@ -988,6 +988,26 @@ textarea {
   accent-color: var(--primary);
 }
 
+.account-assignment-picker {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.account-assignment-picker legend {
+  padding: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.account-assignment-picker .check-row {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-alt);
+}
+
 .button-row,
 .button-grid,
 .form-actions {

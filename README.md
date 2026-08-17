@@ -8,7 +8,7 @@
 
 [![GitHub stars](https://img.shields.io/github/stars/halfwaystudent/douyin-sparkflow?style=social)](https://github.com/halfwaystudent/douyin-sparkflow)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/)
 [![LINUX DO](https://img.shields.io/badge/LINUX%20DO-Discussion-blue)](https://linux.do)
 
 [功能特性](#-功能特性) • [快速开始](#-快速开始) • [使用文档](#-使用文档) • [部署指南](#-部署指南) • [社区讨论](https://linux.do)
@@ -69,7 +69,7 @@
 
 ### 前置要求
 
-- Python 3.8 或更高版本
+- Python 3.9 或更高版本
 - Docker 和 Docker Compose（用于容器部署）
 - 稳定的网络连接
 
