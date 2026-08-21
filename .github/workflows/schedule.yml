@@ -45,6 +45,31 @@ jobs:
         run: |
           status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 https://creator.douyin.com/)"
           test "$status" != "000"
+      - name: Validate USER_DATA secret
+        if: ${{ github.event_name == 'schedule' || inputs.run_task }}
+        env:
+          USER_DATA: ${{ secrets.USER_DATA }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          raw = os.environ.get("USER_DATA", "")
+          if not raw.strip():
+              raise SystemExit(
+                  "USER_DATA is missing in the 'user-data' Environment; "
+                  "add/update that Environment secret before running the send task."
+              )
+          try:
+              data = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"USER_DATA is not valid JSON: {exc.msg}") from exc
+          if not isinstance(data, list) or not data:
+              raise SystemExit("USER_DATA must be a non-empty JSON array of account objects.")
+          if any(not isinstance(account, dict) for account in data):
+              raise SystemExit("USER_DATA must contain only JSON objects.")
+          print(f"USER_DATA validated: {len(data)} account(s); sensitive contents hidden.")
+          PY
       - name: Ensure Chromium is installed
         if: ${{ github.event_name == 'schedule' || inputs.run_task }}
         run: playwright install chromium --with-deps --only-shell
