@@ -338,7 +338,15 @@
   if (!root) return;
   const section = document.getElementById("interactive-login-section");
   const csrfToken = root.dataset.csrfToken || "";
-  const publicUrl = root.dataset.publicUrl || "";
+  const configuredPublicUrl = root.dataset.publicUrl || "";
+  const publicUrl = (() => {
+    if (!configuredPublicUrl) return "";
+    try {
+      return new URL(configuredPublicUrl, window.location.href).href;
+    } catch {
+      return configuredPublicUrl;
+    }
+  })();
   const runtimeState = document.getElementById("login-desktop-runtime-state");
   const statusText = document.getElementById("login-desktop-status-text");
   const frame = document.querySelector("[data-login-frame]");
@@ -472,7 +480,6 @@
   document.querySelectorAll(".login-desktop-open").forEach((button) => {
     button.addEventListener("click", async () => {
       if (section) section.open = true;
-      const popup = publicUrl ? window.open("about:blank", "_blank", "noopener") : null;
       try {
         const reloginUniqueId = button.dataset.reloginUniqueId || "";
         const mode = button.dataset.loginMode || (reloginUniqueId ? "relogin" : "add");
@@ -481,16 +488,11 @@
           ...(reloginUniqueId ? { relogin_unique_id: reloginUniqueId } : {}),
         });
         renderWorkspace(data.workspace);
-        if (data.state === "queued") {
-          if (popup && !popup.closed) popup.close();
-          return;
-        }
-        if (popup && !popup.closed) popup.location.href = publicUrl;
+        if (data.state === "queued") return;
         loadFrame(true);
         refreshLoginQr(500);
-        if (!popup && frame) frame.scrollIntoView({ behavior: "smooth", block: "start" });
+        if (frame) frame.scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (error) {
-        if (popup && !popup.closed) popup.close();
         setStatus(`申请登录工作区失败：${error.message}`, "danger");
       }
     });

@@ -250,12 +250,15 @@ class WebUiSafetyTests(unittest.TestCase):
         self.assertIn("data-refresh-login-qr", dashboard)
         self.assertIn("/login-desktop/qr", dashboard)
 
-    def test_mobile_login_popup_opens_before_async_request(self):
+    def test_login_workspace_loads_inside_dashboard_frame(self):
         script = (Path(app_module.STATIC_DIR) / "app.js").read_text(encoding="utf-8")
         block_start = script.index('document.querySelectorAll(".login-desktop-open")')
         block_end = script.index('document.querySelectorAll(".login-desktop-save")', block_start)
         block = script[block_start:block_end]
-        self.assertLess(block.index('window.open("about:blank"'), block.index('postForm("/login-desktop/open"'))
+        self.assertLess(block.index('postForm("/login-desktop/open"'), block.index("loadFrame(true)"))
+        self.assertNotIn('window.open("about:blank"', block)
+        self.assertNotIn("popup.location", block)
+        self.assertIn("new URL(configuredPublicUrl, window.location.href).href", script)
         self.assertIn("refreshLoginQr(500)", block)
         self.assertIn('data.state === "queued"', block)
         self.assertIn("renderWorkspace(data.workspace)", block)

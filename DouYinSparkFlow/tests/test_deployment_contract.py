@@ -122,6 +122,7 @@ class DeploymentContractTests(unittest.TestCase):
         self.assertIn("mem_limit: ${LOGIN_DESKTOP_MEMORY_LIMIT:-1200m}", compose)
         self.assertIn("pids_limit: ${LOGIN_DESKTOP_PIDS_LIMIT:-256}", compose)
         self.assertIn("-nap -wait 50 -defer 50", start_script)
+        self.assertIn("--window-size=1600,1000", server)
         self.assertIn("start_idle_monitor", server)
         self.assertIn("schedule_stop_after_export", server)
         self.assertIn('reduced_motion="reduce"', server)

@@ -135,6 +135,8 @@ class LoginDesktopManager:
                     "--disable-dev-shm-usage",
                     "--no-sandbox",
                     "--start-maximized",
+                    "--window-position=0,0",
+                    "--window-size=1600,1000",
                     "--disable-gpu",
                     "--disable-gpu-compositing",
                     "--disable-software-rasterizer",
