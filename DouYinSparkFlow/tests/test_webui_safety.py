@@ -188,6 +188,7 @@ class WebUiSafetyTests(unittest.TestCase):
                 os.environ,
                 {
                     "SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL": "",
+                    "SPARKFLOW_LOGIN_DESKTOP_MODE": "novnc",
                 },
                 clear=False,
             ),
@@ -197,6 +198,18 @@ class WebUiSafetyTests(unittest.TestCase):
 
         self.assertTrue(url.startswith("/login-desktop/proxy/vnc.html?"))
         self.assertIn("path=login-desktop/proxy/websockify", url)
+
+    def test_login_desktop_defaults_to_native_mode_on_windows(self):
+        request = type("Request", (), {"url": type("Url", (), {"hostname": "example", "scheme": "http"})()})()
+        with (
+            patch.dict(os.environ, {"SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL": "", "SPARKFLOW_LOGIN_DESKTOP_MODE": "native"}, clear=False),
+            patch.object(app_module, "get_app_settings", return_value={}),
+        ):
+            url = app_module.login_desktop_public_url(request)
+        if os.name == "nt":
+            self.assertEqual("", url)
+        else:
+            self.assertTrue(url.startswith("/login-desktop/proxy/vnc.html?"))
 
     def test_login_desktop_http_proxy_requires_auth_and_forwards_assets(self):
         client = TestClient(app_module.app)

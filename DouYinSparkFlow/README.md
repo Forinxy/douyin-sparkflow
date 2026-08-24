@@ -313,7 +313,7 @@ tail -f logs/app.log
 A: 检查 `login_desktop_server.py` 是否正常运行，端口 18090 是否被占用。
 
 **Q: 浏览器启动失败？**  
-A: 确保已安装 Playwright：`playwright install chromium`
+A: Windows 本地模式请先运行 `.\scripts\start_login_desktop.ps1`；同时确保已安装 Playwright：`playwright install chromium`
 
 **Q: 消息发送失败？**  
 A: 检查网络连接，查看 `logs/app.log` 或 Web 运行日志中的错误信息。

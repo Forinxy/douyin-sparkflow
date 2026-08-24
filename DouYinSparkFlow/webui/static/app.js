@@ -338,6 +338,7 @@
   if (!root) return;
   const section = document.getElementById("interactive-login-section");
   const csrfToken = root.dataset.csrfToken || "";
+  const displayMode = root.dataset.displayMode || "novnc";
   const configuredPublicUrl = root.dataset.publicUrl || "";
   const publicUrl = (() => {
     if (!configuredPublicUrl) return "";
@@ -350,6 +351,9 @@
   const runtimeState = document.getElementById("login-desktop-runtime-state");
   const statusText = document.getElementById("login-desktop-status-text");
   const frame = document.querySelector("[data-login-frame]");
+  const frameWrap = document.querySelector(".desktop-frame-wrap");
+  const nativePanel = document.querySelector("[data-native-login]");
+  const copyLoginUrlButton = document.querySelector("[data-copy-login-url]");
   const qrImage = document.querySelector("[data-login-qr]");
   const qrStatus = document.querySelector("[data-login-qr-status]");
   let timer = null;
@@ -357,6 +361,8 @@
   let countdownTimer = null;
   let qrRefreshTimer = null;
   let workspace = { state: "closed", active: false, position: 0, ticket: "" };
+  if (displayMode === "native" && copyLoginUrlButton) copyLoginUrlButton.hidden = true;
+  if (displayMode === "native" && frameWrap) frameWrap.hidden = true;
 
   const setStatus = (text, tone = "") => {
     if (statusText) statusText.textContent = text;
@@ -377,6 +383,7 @@
   };
 
   const loadFrame = (force = false) => {
+    if (displayMode === "native") return;
     if (frame && (force || frame.dataset.loaded !== "1") && frame.dataset.src) {
       frame.src = frame.dataset.src;
       frame.dataset.loaded = "1";
@@ -384,6 +391,18 @@
   };
 
   const closeFrame = () => {
+    if (nativePanel) nativePanel.hidden = true;
+    if (frameWrap) {
+      frameWrap.classList.remove("native-login-mode");
+      if (displayMode === "native") frameWrap.hidden = true;
+    }
+    if (qrImage) {
+      qrImage.hidden = true;
+      const previous = qrImage.dataset.objectUrl || "";
+      if (previous) URL.revokeObjectURL(previous);
+      delete qrImage.dataset.objectUrl;
+      qrImage.removeAttribute("src");
+    }
     if (!frame) return;
     frame.removeAttribute("src");
     frame.dataset.loaded = "0";
@@ -403,7 +422,16 @@
     if (workspace.state === "active" && workspace.active) {
       const remaining = Math.max(0, Number(workspace.remaining_seconds || 0));
       const tone = remaining > 0 && remaining <= 60 ? "warning" : "success";
-      setStatus(`登录工作区已分配给当前会话，剩余 ${remaining} 秒。完成扫码后请保存登录态。`, tone);
+      if (displayMode === "native") {
+        if (nativePanel) nativePanel.hidden = false;
+        if (frameWrap) {
+          frameWrap.hidden = false;
+          frameWrap.classList.add("native-login-mode");
+        }
+        setStatus(`Windows 本地登录浏览器已打开，剩余 ${remaining} 秒。完成扫码后请保存登录态。`, tone);
+      } else {
+        setStatus(`登录工作区已分配给当前会话，剩余 ${remaining} 秒。完成扫码后请保存登录态。`, tone);
+      }
       return;
     }
     setStatus("登录工作区当前关闭。请从账号卡片点击“重新登录”。");
@@ -494,6 +522,20 @@
         if (frame) frame.scrollIntoView({ behavior: "smooth", block: "start" });
       } catch (error) {
         setStatus(`申请登录工作区失败：${error.message}`, "danger");
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-focus-native-browser]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await postForm("/login-desktop/focus", { ticket: workspace.ticket });
+        setStatus("已请求显示本机登录浏览器，请在桌面窗口中继续操作。", "success");
+      } catch (error) {
+        setStatus(`显示登录浏览器失败：${error.message}`, "danger");
+      } finally {
+        button.disabled = false;
       }
     });
   });

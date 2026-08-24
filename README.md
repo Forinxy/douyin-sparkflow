@@ -128,10 +128,13 @@ pip install -r requirements-web.txt
 # 3. 安装 Playwright 浏览器
 playwright install chromium
 
-# 4. 启动 Web 服务
+# 4. 启动 Windows 本地登录浏览器（另开一个 PowerShell）
+.\scripts\start_login_desktop.ps1
+
+# 5. 启动 Web 服务（再开一个终端）
 python main.py --web
 
-# 5. 访问 http://localhost:8787
+# 6. 访问 http://localhost:8787
 ```
 
 </details>

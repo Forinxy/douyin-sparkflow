@@ -14,7 +14,17 @@ from core.login import collect_login_result
 
 REMOTE_LOGIN_URL = "https://creator.douyin.com/"
 WWW_SELF_URL = "https://www.douyin.com/user/self"
-PROFILE_DIR = Path("/data/login-profile")
+DEFAULT_PROFILE_DIR = (
+    Path(__file__).resolve().parents[1] / "state" / "login-profile"
+    if os.name == "nt"
+    else Path("/data/login-profile")
+)
+PROFILE_DIR = Path(os.getenv("LOGIN_PROFILE_DIR", str(DEFAULT_PROFILE_DIR))).expanduser()
+LOGIN_DESKTOP_MODE = str(
+    os.getenv("LOGIN_DESKTOP_MODE", "native" if os.name == "nt" else "novnc")
+).strip().lower()
+if LOGIN_DESKTOP_MODE not in {"native", "novnc"}:
+    LOGIN_DESKTOP_MODE = "native" if os.name == "nt" else "novnc"
 IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS", "1800")))
 STOP_AFTER_EXPORT_SECONDS = max(0, int(os.getenv("LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS", "60")))
 STATUS_CACHE_SECONDS = max(1, int(os.getenv("LOGIN_DESKTOP_STATUS_CACHE_SECONDS", "15")))
@@ -127,26 +137,32 @@ class LoginDesktopManager:
                     pass
                 self.playwright = None
             self.playwright = await async_playwright().start()
+            launch_args = [
+                "--start-maximized",
+                "--window-position=0,0",
+                "--window-size=1600,1000",
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication",
+            ]
+            if os.name != "nt":
+                launch_args.extend(
+                    [
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                        "--disable-gpu",
+                        "--disable-gpu-compositing",
+                        "--disable-software-rasterizer",
+                        "--disable-accelerated-2d-canvas",
+                        "--disable-accelerated-video-decode",
+                        "--renderer-process-limit=2",
+                    ]
+                )
             self.context = await self.playwright.chromium.launch_persistent_context(
                 str(PROFILE_DIR),
                 headless=False,
                 viewport={"width": 1600, "height": 1000},
-                args=[
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-                    "--start-maximized",
-                    "--window-position=0,0",
-                    "--window-size=1600,1000",
-                    "--disable-gpu",
-                    "--disable-gpu-compositing",
-                    "--disable-software-rasterizer",
-                    "--disable-accelerated-2d-canvas",
-                    "--disable-accelerated-video-decode",
-                    "--renderer-process-limit=2",
-                    "--disable-background-networking",
-                    "--disable-sync",
-                    "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication",
-                ],
+                args=launch_args,
             )
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
 
@@ -173,13 +189,22 @@ class LoginDesktopManager:
     async def stop(self, clear_profile=False):
         async with self._lock:
             if self.page:
-                await self.page.close()
+                try:
+                    await self.page.close()
+                except Exception:
+                    pass
                 self.page = None
             if self.context:
-                await self.context.close()
+                try:
+                    await self.context.close()
+                except Exception:
+                    pass
                 self.context = None
             if self.playwright:
-                await self.playwright.stop()
+                try:
+                    await self.playwright.stop()
+                except Exception:
+                    pass
                 self.playwright = None
             if clear_profile and PROFILE_DIR.exists():
                 shutil.rmtree(PROFILE_DIR, ignore_errors=True)
@@ -194,6 +219,15 @@ class LoginDesktopManager:
     async def ensure_running(self):
         if not self.context or self._context_is_closed():
             await self.start()
+
+    async def focus_browser(self):
+        self.mark_activity()
+        page = await self._get_active_page()
+        try:
+            await page.bring_to_front()
+        except Exception:
+            pass
+        return {"ok": True, "url": page.url, "mode": LOGIN_DESKTOP_MODE}
 
     async def status(self):
         now = time.monotonic()
@@ -503,6 +537,11 @@ async def reset():
 async def close():
     await manager.stop(clear_profile=True)
     return {"ok": True}
+
+
+@app.post("/focus")
+async def focus():
+    return await manager.focus_browser()
 
 
 @app.post("/refresh-qr")

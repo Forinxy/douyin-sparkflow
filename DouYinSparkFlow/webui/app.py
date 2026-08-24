@@ -229,6 +229,13 @@ def login_desktop_api_url():
     return str(configured or "http://127.0.0.1:18090").rstrip("/")
 
 
+def login_desktop_display_mode() -> str:
+    settings = get_app_settings(force_reload=True)
+    configured = os.getenv("SPARKFLOW_LOGIN_DESKTOP_MODE") or settings.get("login_desktop_mode")
+    mode = str(configured or ("native" if os.name == "nt" else "novnc")).strip().lower()
+    return mode if mode in {"native", "novnc"} else "novnc"
+
+
 def login_desktop_public_url(request: Request) -> str:
     settings = get_app_settings(force_reload=True)
     configured_url = str(
@@ -238,6 +245,8 @@ def login_desktop_public_url(request: Request) -> str:
     ).strip()
     if configured_url:
         return configured_url
+    if login_desktop_display_mode() == "native":
+        return ""
 
     return (
         "/login-desktop/proxy/vnc.html"
@@ -436,6 +445,7 @@ def create_app():
                 "is_admin": bool(current_principal(request) and current_principal(request).get("role") == "admin"),
                 "app_settings": public_app_settings(),
                 "login_desktop_public_url": login_desktop_public_url(request),
+                "login_desktop_display_mode": login_desktop_display_mode(),
             }
         )
         return templates.TemplateResponse(
@@ -1389,6 +1399,28 @@ def create_app():
         )
         try:
             payload = call_login_desktop("/refresh-qr", method="POST", payload={}, timeout=90)
+            return JSONResponse({"ok": True, "result": payload, "workspace": _workspace_payload(request)})
+        except RuntimeError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+
+    @app.post("/login-desktop/focus")
+    async def login_desktop_focus(request: Request):
+        maybe_redirect = require_user(request)
+        if maybe_redirect:
+            return JSONResponse({"redirect": "/login"}, status_code=401)
+        lock_error = login_lock_required(request, api=True)
+        if lock_error:
+            return lock_error
+        form = await request.form()
+        if not validate_csrf(request, str(form.get("csrf_token", ""))):
+            return JSONResponse({"ok": False, "error": "Invalid CSRF token"}, status_code=403)
+        heartbeat_login(
+            username=principal(request)["username"],
+            session_id=principal(request).get("session_id", ""),
+            ticket=str(form.get("ticket", "")),
+        )
+        try:
+            payload = call_login_desktop("/focus", method="POST", payload={}, timeout=20)
             return JSONResponse({"ok": True, "result": payload, "workspace": _workspace_payload(request)})
         except RuntimeError as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)

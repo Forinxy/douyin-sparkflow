@@ -1116,6 +1116,32 @@ textarea {
   justify-content: center;
 }
 
+.native-login-panel {
+  min-height: 380px;
+  padding: 32px 24px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  text-align: center;
+  background: var(--surface-alt);
+}
+
+.native-login-panel > svg {
+  width: 42px;
+  height: 42px;
+  color: var(--accent);
+}
+
+.native-login-panel p {
+  max-width: 420px;
+  margin: 0;
+}
+
+.native-login-mode .desktop-frame {
+  display: none;
+}
+
 .desktop-frame-wrap {
   min-width: 0;
   overflow: hidden;

@@ -205,6 +205,7 @@
         class="login-workspace-grid"
         id="login-desktop-controls"
         data-public-url="{{ login_desktop_public_url }}"
+        data-display-mode="{{ login_desktop_display_mode }}"
         data-csrf-token="{{ csrf_token }}"
       >
         <div class="login-actions">
@@ -259,6 +260,14 @@
           </div>
         </div>
         <div class="desktop-frame-wrap">
+          <div class="native-login-panel" data-native-login hidden>
+            <i data-lucide="monitor-up"></i>
+            <strong>Windows 本地登录浏览器已启动</strong>
+            <p class="muted compact">请在本机弹出的 Chromium 窗口中完成抖音扫码。扫码完成后回到这里点击“保存新账号登录”。</p>
+            <button class="button button-primary" type="button" data-focus-native-browser>
+              <i data-lucide="focus"></i><span>显示登录浏览器</span>
+            </button>
+          </div>
           <iframe
             class="desktop-frame"
             data-login-frame
