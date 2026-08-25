@@ -578,6 +578,8 @@
             <label><span>任务日志文件</span><input type="text" name="ops_log_file" value="{{ app_settings.ops_log_file }}"></label>
             <label><span>代理刷新脚本</span><input type="text" name="proxy_refresh_script" value="{{ app_settings.proxy_refresh_script }}"></label>
             <label><span>登录桌面 API</span><input type="text" name="login_desktop_api_url" value="{{ app_settings.login_desktop_api_url }}"></label>
+            <label><span>抖音业务网络出口</span><select name="douyin_network_mode"><option value="direct" {% if app_settings.douyin_network_mode|default("direct") == "direct" %}selected{% endif %}>直连（默认）</option><option value="mihomo" {% if app_settings.douyin_network_mode == "mihomo" %}selected{% endif %}>Mihomo（高级）</option></select></label>
+            <label><span>Mihomo 代理地址</span><input type="text" name="douyin_proxy_url" value="{{ app_settings.douyin_proxy_url|default("http://proxy:7890") }}" placeholder="http://proxy:7890"><small>仅在选择 Mihomo 时使用；默认不启用。</small></label>
             <label><span>Web UI 端口</span><input type="number" min="1" max="65535" name="ui_port" value="{{ app_settings.ui_port }}"></label>
           </div>
           <div class="form-grid">

@@ -85,6 +85,8 @@ DEFAULT_APP_SETTINGS = {
     "proxy_refresh_script": "/opt/douyin-sparkflow/refresh_proxy.sh",
     "local_login_helper_url": "http://127.0.0.1:18765",
     "login_desktop_api_url": "http://127.0.0.1:18090",
+    "douyin_network_mode": "direct",
+    "douyin_proxy_url": "http://proxy:7890",
     "login_desktop_public_url": "",
     "login_desktop_public_scheme": "http",
     "login_desktop_public_port": 8788,

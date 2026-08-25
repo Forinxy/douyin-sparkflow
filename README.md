@@ -225,8 +225,8 @@ WEB_PORT=8787
 LOGIN_DESKTOP_BIND_ADDRESS=127.0.0.1
 LOGIN_DESKTOP_WEB_PORT=8788
 LOGIN_DESKTOP_PUBLIC_URL=/login-desktop/proxy/vnc.html?autoconnect=1&resize=scale&view_only=0&path=login-desktop/proxy/websockify
-# 登录浏览器默认先直连抖音，直连失败时再尝试 Mihomo
-LOGIN_DESKTOP_PROXY_MODE=auto
+# 登录浏览器默认直连；Mihomo 仅作为高级选项
+LOGIN_DESKTOP_PROXY_MODE=direct
 LOGIN_DESKTOP_PROXY=http://proxy:7890
 
 # Mihomo 代理和控制端口默认仅绑定本机
@@ -236,7 +236,7 @@ PROXY_CONTROLLER_PORT=9090
 PROXY_SUB_URL=
 ```
 
-登录工作区的网络路径与发送任务分开处理。`LOGIN_DESKTOP_PROXY_MODE=auto` 时，登录浏览器会从 `login-desktop` 容器内先直连 `creator.douyin.com`；只有直连预检失败时才使用 `LOGIN_DESKTOP_PROXY`。发送任务容器仍可独立使用 Mihomo。若两条路径都不可用，登录页面会显示明确的网络错误，不会无限等待二维码。
+默认抖音业务网络使用直连。登录、好友刷新和浏览器发送会显式禁用环境代理，避免未配置的 Mihomo 影响正常使用。高级用户可在 Web UI「系统设置」中选择 Mihomo 并填写代理地址；登录浏览器仍可通过 `LOGIN_DESKTOP_PROXY_MODE=proxy` 强制使用代理。
 
 #### `config.example.json` 与 `config.json` - 应用配置
 

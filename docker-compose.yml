@@ -38,14 +38,6 @@ services:
       - login-desktop
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      HTTP_PROXY: http://proxy:7890
-      HTTPS_PROXY: http://proxy:7890
-      ALL_PROXY: socks5://proxy:7890
-      http_proxy: http://proxy:7890
-      https_proxy: http://proxy:7890
-      all_proxy: socks5://proxy:7890
-      NO_PROXY: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
-      no_proxy: localhost,127.0.0.1,login-desktop,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
       SPARKFLOW_LOGIN_DESKTOP_API_URL: http://login-desktop:18090
       LOGIN_DESKTOP_PUBLIC_PORT: ${LOGIN_DESKTOP_WEB_PORT:-8788}
       SPARKFLOW_LOGIN_DESKTOP_PUBLIC_URL: ${LOGIN_DESKTOP_PUBLIC_URL:-/login-desktop/proxy/vnc.html?autoconnect=1&resize=scale&view_only=0&path=login-desktop/proxy/websockify}
@@ -77,7 +69,7 @@ services:
       LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS: ${LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS:-1800}
       LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS: ${LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS:-60}
       LOGIN_DESKTOP_STATUS_CACHE_SECONDS: ${LOGIN_DESKTOP_STATUS_CACHE_SECONDS:-15}
-      LOGIN_DESKTOP_PROXY_MODE: ${LOGIN_DESKTOP_PROXY_MODE:-auto}
+      LOGIN_DESKTOP_PROXY_MODE: ${LOGIN_DESKTOP_PROXY_MODE:-direct}
       LOGIN_DESKTOP_PROXY: ${LOGIN_DESKTOP_PROXY:-http://proxy:7890}
       LOGIN_DESKTOP_PREFLIGHT_TIMEOUT_SECONDS: ${LOGIN_DESKTOP_PREFLIGHT_TIMEOUT_SECONDS:-15}
       LOGIN_DESKTOP_NETWORK_CACHE_SECONDS: ${LOGIN_DESKTOP_NETWORK_CACHE_SECONDS:-30}
@@ -101,14 +93,6 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PYTHONUNBUFFERED: "1"
-      HTTP_PROXY: http://proxy:7890
-      HTTPS_PROXY: http://proxy:7890
-      ALL_PROXY: socks5://proxy:7890
-      http_proxy: http://proxy:7890
-      https_proxy: http://proxy:7890
-      all_proxy: socks5://proxy:7890
-      NO_PROXY: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
-      no_proxy: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     command: python /app/scripts/cron_runner.py /host-spool-cron/root
     volumes:
       - ./DouYinSparkFlow:/app
@@ -125,14 +109,6 @@ services:
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       PYTHONUNBUFFERED: "1"
-      HTTP_PROXY: http://proxy:7890
-      HTTPS_PROXY: http://proxy:7890
-      ALL_PROXY: socks5://proxy:7890
-      http_proxy: http://proxy:7890
-      https_proxy: http://proxy:7890
-      all_proxy: socks5://proxy:7890
-      NO_PROXY: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
-      no_proxy: localhost,127.0.0.1,douyin.com,amemv.com,snssdk.com,bytedance.com,pstatp.com,volccdn.com,bytescm.com,byted.net,douyinstatic.com,bytecdn.cn,byteimg.com,bytegoofy.com,toutiaostatic.com
     command: python main.py --doTask
     volumes:
       - ./DouYinSparkFlow:/app

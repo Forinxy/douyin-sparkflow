@@ -1,5 +1,7 @@
 ## 2026-08-25
 
+- Made the experimental branch default to direct Douyin business traffic; Mihomo is now an explicit advanced option for browser traffic.
+
 - Made login-browser networking direct-first with Mihomo fallback and explicit preflight errors.
 
 # Changelog

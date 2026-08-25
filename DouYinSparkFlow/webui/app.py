@@ -1035,6 +1035,9 @@ def create_app():
         settings["login_desktop_api_url"] = str(
             form.get("login_desktop_api_url", settings.get("login_desktop_api_url", "http://127.0.0.1:18090"))
         ).strip()
+        network_mode = str(form.get("douyin_network_mode", settings.get("douyin_network_mode", "direct"))).strip().lower()
+        settings["douyin_network_mode"] = network_mode if network_mode in {"direct", "mihomo"} else "direct"
+        settings["douyin_proxy_url"] = str(form.get("douyin_proxy_url", settings.get("douyin_proxy_url", "http://proxy:7890"))).strip()
         settings["ui_port"] = int(form.get("ui_port", settings.get("ui_port", 8787)))
         save_app_settings(settings)
 

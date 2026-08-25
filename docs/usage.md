@@ -79,7 +79,7 @@ ssh -L 8788:127.0.0.1:8788 <user>@<server-ip>
 
 ### 登录工作区打不开
 
-先确认 SSH 隧道仍在运行，再检查 `login-desktop` 容器。默认不需要把 8788 暴露到公网。登录浏览器默认优先直连抖音，代理只作为备用路径。
+先确认 SSH 隧道仍在运行，再检查 `login-desktop` 容器。默认不需要把 8788 暴露到公网。登录浏览器、好友刷新和发送浏览器默认使用直连。Mihomo 是高级选项，可在 Web UI「系统设置」中手动启用。
 
 ```bash
 docker compose ps
@@ -87,7 +87,7 @@ docker compose logs -f login-desktop
 docker compose exec login-desktop curl -fsS http://127.0.0.1:18090/preflight
 ```
 
-如果预检失败，页面会显示直连和代理各自的检查结果；通常不需要修改发送任务使用的 Mihomo 配置。
+如果直连遇到网络问题，再在「系统设置」中选择 Mihomo 并填写代理地址。未配置 Mihomo 不会影响默认直连模式。
 
 ### 账号保存后没有好友列表
 

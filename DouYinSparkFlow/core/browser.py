@@ -8,7 +8,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 from rich.console import Console
 
-from utils.config import DEBUG, Environment, get_environment
+from utils.config import DEBUG, Environment, get_app_settings, get_environment
 
 
 console = Console()
@@ -52,6 +52,30 @@ def _browser_args():
     ]
 
 
+def _douyin_browser_proxy():
+    """Return an explicit proxy for Douyin browser traffic, or None for direct."""
+    settings = get_app_settings(force_reload=True)
+    mode = str(
+        os.getenv("SPARKFLOW_DOUYIN_NETWORK_MODE")
+        or settings.get("douyin_network_mode", "direct")
+    ).strip().lower()
+    if mode != "mihomo":
+        return None
+    return str(
+        os.getenv("SPARKFLOW_DOUYIN_PROXY_URL")
+        or settings.get("douyin_proxy_url", "http://proxy:7890")
+    ).strip() or None
+
+
+def _browser_launch_options(GUI=False):
+    args = _browser_args()
+    proxy = _douyin_browser_proxy()
+    if proxy:
+        return {"headless": _headless_for(GUI), "args": args, "proxy": {"server": proxy}}
+    args.append("--no-proxy-server")
+    return {"headless": _headless_for(GUI), "args": args}
+
+
 def sanitize_profile_name(value):
     raw = str(value or "").strip()
     if not raw:
@@ -83,10 +107,7 @@ async def get_browser(GUI=False):
 
     try:
         playwright = await async_playwright().start()
-        browser = await playwright.chromium.launch(
-            headless=_headless_for(GUI),
-            args=_browser_args(),
-        )
+        browser = await playwright.chromium.launch(**_browser_launch_options(GUI))
         return playwright, browser
     except Exception as exc:
         if "Executable doesn't exist" in str(exc) and get_environment() != Environment.GITHUBACTION:
@@ -105,11 +126,11 @@ async def get_persistent_browser_context(profile_name, GUI=False, root=None):
 
     try:
         playwright = await async_playwright().start()
+        launch_options = _browser_launch_options(GUI)
+        launch_options["viewport"] = {"width": 1600, "height": 1000}
         context = await playwright.chromium.launch_persistent_context(
             str(profile_dir),
-            headless=_headless_for(GUI),
-            viewport={"width": 1600, "height": 1000},
-            args=_browser_args(),
+            **launch_options,
         )
         return playwright, context, profile_dir
     except Exception as exc:
