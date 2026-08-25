@@ -2,8 +2,10 @@ import asyncio
 import os
 import shutil
 import time
+import urllib.request
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request, Response
 import uvicorn
@@ -14,10 +16,30 @@ from core.login import collect_login_result
 
 REMOTE_LOGIN_URL = "https://creator.douyin.com/"
 WWW_SELF_URL = "https://www.douyin.com/user/self"
-PROFILE_DIR = Path("/data/login-profile")
+DEFAULT_PROFILE_DIR = (
+    Path(__file__).resolve().parents[1] / "state" / "login-profile"
+    if os.name == "nt"
+    else Path("/data/login-profile")
+)
+PROFILE_DIR = Path(os.getenv("LOGIN_PROFILE_DIR", str(DEFAULT_PROFILE_DIR))).expanduser()
+LOGIN_DESKTOP_MODE = str(
+    os.getenv("LOGIN_DESKTOP_MODE", "native" if os.name == "nt" else "novnc")
+).strip().lower()
+if LOGIN_DESKTOP_MODE not in {"native", "novnc"}:
+    LOGIN_DESKTOP_MODE = "native" if os.name == "nt" else "novnc"
 IDLE_TIMEOUT_SECONDS = max(300, int(os.getenv("LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS", "1800")))
 STOP_AFTER_EXPORT_SECONDS = max(0, int(os.getenv("LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS", "60")))
 STATUS_CACHE_SECONDS = max(1, int(os.getenv("LOGIN_DESKTOP_STATUS_CACHE_SECONDS", "15")))
+LOGIN_NETWORK_MODE = str(os.getenv("LOGIN_DESKTOP_PROXY_MODE", "auto")).strip().lower()
+if LOGIN_NETWORK_MODE not in {"auto", "direct", "proxy"}:
+    LOGIN_NETWORK_MODE = "auto"
+LOGIN_PROXY_SERVER = str(os.getenv("LOGIN_DESKTOP_PROXY", "http://proxy:7890")).strip()
+LOGIN_PREFLIGHT_TIMEOUT_SECONDS = max(
+    3, int(os.getenv("LOGIN_DESKTOP_PREFLIGHT_TIMEOUT_SECONDS", "15"))
+)
+LOGIN_NETWORK_CACHE_SECONDS = max(
+    0, int(os.getenv("LOGIN_DESKTOP_NETWORK_CACHE_SECONDS", "30"))
+)
 GENERIC_WWW_NAMES = {
     "",
     "我的",
@@ -41,9 +63,68 @@ GENERIC_WWW_NAMES = {
 }
 
 
+class LoginNetworkError(RuntimeError):
+    """Raised when the login browser cannot reach Douyin."""
+
+    def __init__(self, message, *, checks=None):
+        super().__init__(message)
+        self.checks = checks or {}
+
+
+def _safe_proxy_label(proxy_server):
+    if not proxy_server:
+        return ""
+    try:
+        parsed = urlsplit(proxy_server)
+        host = parsed.hostname or ""
+        port = f":{parsed.port}" if parsed.port else ""
+        return f"{host}{port}" if host else "configured proxy"
+    except ValueError:
+        return "configured proxy"
+
+
+def _probe_login_target(proxy_server=None, timeout_seconds=15):
+    """Probe Douyin without inheriting the process proxy environment."""
+    if proxy_server:
+        handlers = [
+            urllib.request.ProxyHandler(
+                {"http": proxy_server, "https": proxy_server}
+            )
+        ]
+    else:
+        handlers = [urllib.request.ProxyHandler({})]
+    opener = urllib.request.build_opener(*handlers)
+    request = urllib.request.Request(
+        REMOTE_LOGIN_URL,
+        headers={"User-Agent": "DouYinSparkFlow-login-preflight/1"},
+    )
+    started = time.monotonic()
+    try:
+        with opener.open(request, timeout=timeout_seconds) as response:
+            response.read(256)
+            status = int(getattr(response, "status", 200))
+        if status >= 400:
+            raise RuntimeError(f"HTTP {status}")
+        return {
+            "ok": True,
+            "status": status,
+            "latency_ms": round((time.monotonic() - started) * 1000),
+        }
+    except Exception as exc:
+        error = str(exc) or exc.__class__.__name__
+        if proxy_server:
+            error = error.replace(proxy_server, _safe_proxy_label(proxy_server))
+        return {
+            "ok": False,
+            "error": error[:240],
+            "latency_ms": round((time.monotonic() - started) * 1000),
+        }
+
+
 class LoginDesktopManager:
     def __init__(self):
         self._lock = asyncio.Lock()
+        self._page_operation_lock = asyncio.Lock()
         self.playwright = None
         self.context = None
         self.page = None
@@ -52,6 +133,83 @@ class LoginDesktopManager:
         self._status_checked_at = 0.0
         self._idle_monitor_task = None
         self._scheduled_stop_task = None
+        self._network_route = None
+        self._network_checks = {}
+        self._network_checked_at = 0.0
+
+    def _network_payload(self):
+        route = dict(self._network_route or {})
+        return {
+            "mode": LOGIN_NETWORK_MODE,
+            "selected": route.get("mode", ""),
+            "proxy": _safe_proxy_label(LOGIN_PROXY_SERVER) if route.get("mode") == "proxy" else "",
+            "checked_at": route.get("checked_at", ""),
+            "checks": dict(self._network_checks),
+        }
+
+    def _invalidate_network_route(self):
+        self._network_route = None
+        self._network_checked_at = 0.0
+
+    async def _select_network_route(self, *, force=False):
+        now = time.monotonic()
+        if (
+            not force
+            and self._network_route
+            and now - self._network_checked_at < LOGIN_NETWORK_CACHE_SECONDS
+        ):
+            return dict(self._network_route)
+
+        checks = {}
+        candidates = []
+        if LOGIN_NETWORK_MODE in {"auto", "direct"}:
+            candidates.append(("direct", None))
+        if LOGIN_NETWORK_MODE in {"auto", "proxy"} and LOGIN_PROXY_SERVER:
+            candidates.append(("proxy", LOGIN_PROXY_SERVER))
+
+        for mode, proxy_server in candidates:
+            result = await asyncio.to_thread(
+                _probe_login_target,
+                proxy_server,
+                LOGIN_PREFLIGHT_TIMEOUT_SECONDS,
+            )
+            checks[mode] = result
+            if result.get("ok"):
+                route = {
+                    "mode": mode,
+                    "proxy": _safe_proxy_label(proxy_server),
+                    "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                }
+                self._network_checks = checks
+                self._network_route = route
+                self._network_checked_at = now
+                return dict(route)
+
+        self._network_checks = checks
+        self._network_route = None
+        self._network_checked_at = now
+        if LOGIN_NETWORK_MODE == "direct":
+            message = "无法直连抖音创作者中心，请检查服务器网络出口"
+        elif LOGIN_NETWORK_MODE == "proxy":
+            message = f"代理 {_safe_proxy_label(LOGIN_PROXY_SERVER)} 无法访问抖音创作者中心"
+        else:
+            message = "直连和代理都无法访问抖音创作者中心"
+        raise LoginNetworkError(message, checks=checks)
+
+    async def network_preflight(self, *, force=True):
+        try:
+            route = await self._select_network_route(force=force)
+            return {
+                "ok": True,
+                "route": route,
+                "network": self._network_payload(),
+            }
+        except LoginNetworkError as exc:
+            return {
+                "ok": False,
+                "error": str(exc),
+                "network": self._network_payload(),
+            }
 
     def mark_activity(self):
         self._last_activity = time.monotonic()
@@ -125,25 +283,41 @@ class LoginDesktopManager:
                 except Exception:
                     pass
                 self.playwright = None
+            route = await self._select_network_route()
             self.playwright = await async_playwright().start()
+            launch_args = [
+                "--start-maximized",
+                "--window-position=0,0",
+                "--window-size=1600,1000",
+                "--disable-background-networking",
+                "--disable-sync",
+                "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication",
+            ]
+            if os.name != "nt":
+                launch_args.extend(
+                    [
+                        "--disable-dev-shm-usage",
+                        "--no-sandbox",
+                        "--disable-gpu",
+                        "--disable-gpu-compositing",
+                        "--disable-software-rasterizer",
+                        "--disable-accelerated-2d-canvas",
+                        "--disable-accelerated-video-decode",
+                        "--renderer-process-limit=2",
+                    ]
+                )
+            launch_options = {
+                "headless": False,
+                "viewport": {"width": 1600, "height": 1000},
+                "args": launch_args,
+            }
+            if route["mode"] == "proxy":
+                launch_options["proxy"] = {"server": LOGIN_PROXY_SERVER}
+            else:
+                launch_args.append("--no-proxy-server")
             self.context = await self.playwright.chromium.launch_persistent_context(
                 str(PROFILE_DIR),
-                headless=False,
-                viewport={"width": 1600, "height": 1000},
-                args=[
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-                    "--start-maximized",
-                    "--disable-gpu",
-                    "--disable-gpu-compositing",
-                    "--disable-software-rasterizer",
-                    "--disable-accelerated-2d-canvas",
-                    "--disable-accelerated-video-decode",
-                    "--renderer-process-limit=2",
-                    "--disable-background-networking",
-                    "--disable-sync",
-                    "--disable-features=Translate,MediaRouter,OptimizationHints,AutofillServerCommunication",
-                ],
+                **launch_options,
             )
             self.page = self.context.pages[0] if self.context.pages else await self.context.new_page()
 
@@ -170,13 +344,22 @@ class LoginDesktopManager:
     async def stop(self, clear_profile=False):
         async with self._lock:
             if self.page:
-                await self.page.close()
+                try:
+                    await self.page.close()
+                except Exception:
+                    pass
                 self.page = None
             if self.context:
-                await self.context.close()
+                try:
+                    await self.context.close()
+                except Exception:
+                    pass
                 self.context = None
             if self.playwright:
-                await self.playwright.stop()
+                try:
+                    await self.playwright.stop()
+                except Exception:
+                    pass
                 self.playwright = None
             if clear_profile and PROFILE_DIR.exists():
                 shutil.rmtree(PROFILE_DIR, ignore_errors=True)
@@ -191,6 +374,20 @@ class LoginDesktopManager:
     async def ensure_running(self):
         if not self.context or self._context_is_closed():
             await self.start()
+
+    async def focus_browser(self):
+        self.mark_activity()
+        page = await self._get_active_page()
+        try:
+            await page.bring_to_front()
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "url": page.url,
+            "mode": LOGIN_DESKTOP_MODE,
+            "network": self._network_payload(),
+        }
 
     async def status(self):
         now = time.monotonic()
@@ -210,6 +407,7 @@ class LoginDesktopManager:
                 "unique_id": "",
                 "current_url": "",
                 "profile_dir": str(PROFILE_DIR),
+                "network": self._network_payload(),
             }
             self._status_cache = payload
             self._status_checked_at = now
@@ -235,6 +433,7 @@ class LoginDesktopManager:
                 "unique_id": "",
                 "current_url": "",
                 "profile_dir": str(PROFILE_DIR),
+                "network": self._network_payload(),
             }
             self._status_cache = payload
             self._status_checked_at = now
@@ -242,13 +441,14 @@ class LoginDesktopManager:
 
         if page:
             current_url = page.url
-            try:
-                result = await collect_login_result(page, self.context, timeout_ms=1000)
-                logged_in = True
-                username = result["username"]
-                unique_id = result["unique_id"]
-            except Exception:
-                pass
+            if not self._page_operation_lock.locked():
+                try:
+                    result = await collect_login_result(page, self.context, timeout_ms=1000)
+                    logged_in = True
+                    username = result["username"]
+                    unique_id = result["unique_id"]
+                except Exception:
+                    pass
 
         payload = {
             "running": True,
@@ -257,36 +457,80 @@ class LoginDesktopManager:
             "unique_id": unique_id,
             "current_url": current_url,
             "profile_dir": str(PROFILE_DIR),
+            "network": self._network_payload(),
         }
         self._status_cache = payload
         self._status_checked_at = now
         return dict(payload)
 
     async def open_login(self):
-        await self.refresh_login_qr()
+        self.mark_activity()
+        try:
+            await asyncio.wait_for(self._page_operation_lock.acquire(), timeout=5)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("login page is busy; retry shortly") from exc
+        try:
+            page = await self._get_active_page()
+            if page.url.startswith(REMOTE_LOGIN_URL):
+                return {"ok": True, "url": page.url, "network": self._network_payload()}
+            refresh_url = f"{REMOTE_LOGIN_URL}?qr_refresh={int(time.time() * 1000)}"
+            try:
+                await page.goto(refresh_url, wait_until="commit", timeout=30000)
+            except Exception:
+                await self.stop(clear_profile=False)
+                await self.start()
+                page = await self._get_active_page()
+                await page.goto(refresh_url, wait_until="commit", timeout=30000)
+            return {"ok": True, "url": page.url, "network": self._network_payload()}
+        finally:
+            self._page_operation_lock.release()
 
     async def refresh_login_qr(self):
         self.mark_activity()
+        try:
+            await asyncio.wait_for(self._page_operation_lock.acquire(), timeout=5)
+        except asyncio.TimeoutError as exc:
+            raise RuntimeError("login page is busy; retry shortly") from exc
+        try:
+            return await self._refresh_login_qr_locked()
+        finally:
+            self._page_operation_lock.release()
+
+    async def _refresh_login_qr_locked(self):
         refresh_url = f"{REMOTE_LOGIN_URL}?qr_refresh={int(time.time() * 1000)}"
         try:
             page = await self._get_active_page()
-            await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(refresh_url, wait_until="commit", timeout=30000)
         except Exception:
             await self.reset()
             page = await self._get_active_page()
-            await page.goto(refresh_url, wait_until="domcontentloaded", timeout=60000)
+            await page.goto(refresh_url, wait_until="commit", timeout=30000)
 
         deadline = asyncio.get_running_loop().time() + 45
         logged_in = False
         qr_ready = False
         while asyncio.get_running_loop().time() < deadline:
-            qr = page.locator('img[class*="qrcode"]').first
-            try:
-                if await qr.count() and await qr.is_visible():
-                    qr_ready = True
+            for selector in (
+                'img[class*="qrcode"]',
+                'img[src^="data:image/png;base64"]',
+            ):
+                candidates = page.locator(selector)
+                for index in range(await candidates.count()):
+                    qr = candidates.nth(index)
+                    try:
+                        if not await qr.is_visible():
+                            continue
+                        box = await qr.bounding_box()
+                        if not box or box["width"] < 120 or box["height"] < 120:
+                            continue
+                        ratio = box["width"] / max(1, box["height"])
+                        if 0.8 <= ratio <= 1.25:
+                            qr_ready = True
+                            break
+                    except Exception:
+                        pass
+                if qr_ready:
                     break
-            except Exception:
-                pass
 
             if "/creator-micro/" in page.url:
                 logged_in = True
@@ -435,6 +679,14 @@ async def health():
     return {"ok": True}
 
 
+@app.get("/preflight")
+async def preflight():
+    result = await manager.network_preflight(force=True)
+    if not result.get("ok"):
+        raise HTTPException(status_code=502, detail=result)
+    return result
+
+
 @app.get("/status")
 async def status():
     return await manager.status()
@@ -442,8 +694,13 @@ async def status():
 
 @app.post("/open-login")
 async def open_login():
-    await manager.open_login()
-    return {"ok": True}
+    try:
+        return await manager.open_login()
+    except LoginNetworkError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "LOGIN_NETWORK_UNAVAILABLE", "message": str(exc), "checks": exc.checks},
+        ) from exc
 
 
 @app.post("/reset")
@@ -452,9 +709,26 @@ async def reset():
     return {"ok": True}
 
 
+@app.post("/close")
+async def close():
+    await manager.stop(clear_profile=True)
+    return {"ok": True}
+
+
+@app.post("/focus")
+async def focus():
+    return await manager.focus_browser()
+
+
 @app.post("/refresh-qr")
 async def refresh_qr():
-    return await manager.refresh_login_qr()
+    try:
+        return await manager.refresh_login_qr()
+    except LoginNetworkError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "LOGIN_NETWORK_UNAVAILABLE", "message": str(exc), "checks": exc.checks},
+        ) from exc
 
 
 @app.post("/export")
@@ -472,7 +746,15 @@ async def export():
 
 @app.get("/qr")
 async def login_qr():
-    page = await manager._get_active_page()
+    if manager._page_operation_lock.locked():
+        raise HTTPException(status_code=503, detail="login page is busy; retry shortly")
+    try:
+        page = await manager._get_active_page()
+    except LoginNetworkError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": "LOGIN_NETWORK_UNAVAILABLE", "message": str(exc), "checks": exc.checks},
+        ) from exc
     expired = await page.locator('[class*="qrcode_expired"]').count()
     if expired and await page.locator('[class*="qrcode_expired"]').first.is_visible():
         raise HTTPException(status_code=409, detail="login QR code has expired")
@@ -499,7 +781,7 @@ async def login_qr():
                 )
             except Exception:
                 continue
-    raise HTTPException(status_code=404, detail="login QR code is not ready")
+    raise HTTPException(status_code=202, detail="login QR code is still starting", headers={"Retry-After": "2"})
 
 
 @app.get("/debug/screenshot")

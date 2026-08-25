@@ -12,7 +12,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from core.browser import get_browser, get_persistent_browser_context, sanitize_profile_name
+from core.browser import (
+    get_browser,
+    get_persistent_browser_context,
+    sanitize_profile_name,
+    select_douyin_network_mode,
+)
 from core.msg_builder import build_message, build_message_candidates
 from core.protocol_dispatch import run_protocol_tasks
 from core.send_state import parse_sent_at, target_is_strong_confirmed_today
@@ -1625,6 +1630,13 @@ def _manual_run_unsent_only():
     return _is_manual_run() and os.getenv("SPARKFLOW_MANUAL_UNSENT_ONLY") == "1"
 
 
+def _requested_account_refs():
+    raw = os.getenv("SPARKFLOW_ACCOUNT_REFS")
+    if raw is None:
+        return None
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
 def _unsent_retry_max_attempts():
     raw_value = str(os.getenv("SPARKFLOW_UNSENT_RETRY_MAX_ATTEMPTS") or "3").strip()
     try:
@@ -2347,6 +2359,8 @@ async def run_browser_tasks(active_config, browser_user_data):
     send_strategy = _normalize_send_strategy(active_config)
     friend_scan_config = _normalize_friend_list_scan_config(active_config)
     profile_config = _normalize_persistent_profile_config(active_config)
+    network_mode = await select_douyin_network_mode(CREATOR_HOME_URL)
+    logger.info("Selected Douyin task network route=%s", network_mode)
     semaphore = asyncio.Semaphore(active_config["taskCount"] if active_config["multiTask"] else 1)
     tasks = []
 
@@ -2364,11 +2378,11 @@ async def run_browser_tasks(active_config, browser_user_data):
                 user.get("username", "unknown"),
                 len(user["targets"]),
             )
-            tasks.append(do_user_task(None, user, semaphore, send_strategy, profile_config, friend_scan_config))
+            tasks.append(do_user_task(None, user, semaphore, send_strategy, profile_config, friend_scan_config, network_mode))
         await asyncio.gather(*tasks)
         return
 
-    playwright, browser = await get_browser()
+    playwright, browser = await get_browser(network_mode=network_mode)
     try:
         for user in browser_user_data:
             logger.info(
@@ -2376,7 +2390,7 @@ async def run_browser_tasks(active_config, browser_user_data):
                 user.get("username", "unknown"),
                 len(user["targets"]),
             )
-            tasks.append(do_user_task(browser, user, semaphore, send_strategy, profile_config, friend_scan_config))
+            tasks.append(do_user_task(browser, user, semaphore, send_strategy, profile_config, friend_scan_config, network_mode))
 
         await asyncio.gather(*tasks)
     finally:
@@ -2384,7 +2398,7 @@ async def run_browser_tasks(active_config, browser_user_data):
         await browser.close()
 
 
-async def do_user_task(browser, user, semaphore, send_strategy, profile_config, friend_scan_config):
+async def do_user_task(browser, user, semaphore, send_strategy, profile_config, friend_scan_config, network_mode):
     async with semaphore:
         account_name = user.get("username", "unknown")
         account_lock_handle = None
@@ -2409,6 +2423,7 @@ async def do_user_task(browser, user, semaphore, send_strategy, profile_config, 
                         profile_config,
                         friend_scan_config,
                         account_name,
+                    network_mode,
                     ),
                     timeout=timeout_seconds,
                 )
@@ -2430,7 +2445,7 @@ async def do_user_task(browser, user, semaphore, send_strategy, profile_config, 
                 _release_browser_account_lock(account_lock_handle, account_lock_path, account_name)
 
 
-async def _do_user_task_locked(browser, user, send_strategy, profile_config, friend_scan_config, account_name):
+async def _do_user_task_locked(browser, user, send_strategy, profile_config, friend_scan_config, account_name, network_mode):
     cookies = user["cookies"]
     targets = user["targets"]
     start_delay = _random_delay_seconds(
@@ -2446,6 +2461,7 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
         owned_playwright, context, profile_dir = await get_persistent_browser_context(
             _account_profile_name(user),
             root=profile_config["root"],
+        network_mode=network_mode,
         )
         logger.info("Opened persistent browser profile for %s at %s", account_name, profile_dir)
         if profile_config["syncStoredCookiesBeforeRun"]:
@@ -2719,6 +2735,9 @@ async def _do_user_task_locked(browser, user, send_strategy, profile_config, fri
 async def runTasks():
     active_config = get_config(force_reload=True)
     all_user_data = get_userData(force_reload=True)
+    requested_refs = _requested_account_refs()
+    if requested_refs is not None:
+        all_user_data = [user for user in all_user_data if user.get("account_ref") in requested_refs]
     active_user_data = [user for user in all_user_data if user.get("enabled", True)]
     disabled_user_data = [user for user in all_user_data if not user.get("enabled", True)]
 

@@ -1,5 +1,10 @@
 import asyncio
-from core.browser import get_browser
+import logging
+
+from core.browser import douyin_network_modes, get_browser
+
+
+logger = logging.getLogger(__name__)
 
 
 CHAT_PAGE_URL = "https://creator.douyin.com/creator-micro/data/following/chat"
@@ -141,7 +146,21 @@ async def _wait_for_first_friend_or_empty(page):
     return False
 
 
+async def _wait_for_chat_or_login(page, timeout_seconds=30):
+    deadline = asyncio.get_running_loop().time() + timeout_seconds
+    while asyncio.get_running_loop().time() < deadline:
+        await _ensure_logged_in(page)
+        try:
+            if await page.locator("#sub-app").count() > 0:
+                return
+        except Exception:
+            pass
+        await asyncio.sleep(0.5)
+    raise RuntimeError("chat page did not load within timeout")
+
+
 async def collect_friend_names(page):
+    await _wait_for_chat_or_login(page)
     await _click_friends_tab(page)
     await asyncio.sleep(1)
 
@@ -204,31 +223,19 @@ async def collect_friend_names(page):
             return found_names
 
 
-async def fetch_account_friends(account):
+async def _fetch_account_friends_once(account, network_mode):
     cookies = list(account.get("cookies") or [])
-    if not cookies:
-        raise RuntimeError("账号没有可用 cookies，请重新扫码登录")
-
     playwright = browser = context = page = None
     try:
-        playwright, browser = await get_browser(GUI=False)
+        playwright, browser = await get_browser(GUI=False, network_mode=network_mode)
         context = await browser.new_context()
         context.set_default_navigation_timeout(120000)
         context.set_default_timeout(120000)
         page = await context.new_page()
-
-        await page.goto("https://creator.douyin.com/", wait_until="domcontentloaded", timeout=60000)
         await context.add_cookies(cookies)
-        await page.goto(CHAT_PAGE_URL, wait_until="domcontentloaded", timeout=60000)
-        await asyncio.sleep(2)
-
-        await _ensure_logged_in(page)
-        friends = await collect_friend_names(page)
-        return friends
-    except RuntimeError:
-        raise
-    except Exception as exc:
-        raise RuntimeError(f"刷新好友列表失败，请重试：{exc}") from exc
+        await page.goto(CHAT_PAGE_URL, wait_until="commit", timeout=30000)
+        await asyncio.sleep(1)
+        return await collect_friend_names(page)
     finally:
         if page:
             await page.close()
@@ -238,3 +245,38 @@ async def fetch_account_friends(account):
             await browser.close()
         if playwright:
             await playwright.stop()
+
+
+async def fetch_account_friends(account):
+    cookies = list(account.get("cookies") or [])
+    if not cookies:
+        raise RuntimeError("account has no cookies; scan login QR code first")
+
+    modes = douyin_network_modes()
+    last_error = None
+    for index, network_mode in enumerate(modes):
+        try:
+            friends = await _fetch_account_friends_once(account, network_mode)
+            logger.info(
+                "Friend refresh route=%s count=%s attempt=%s/%s",
+                network_mode,
+                len(friends),
+                index + 1,
+                len(modes),
+            )
+            if friends or index == len(modes) - 1:
+                return friends
+            logger.warning(
+                "Friend refresh route=%s returned zero friends; trying next route",
+                network_mode,
+            )
+        except RuntimeError as exc:
+            text = str(exc).lower()
+            if any(marker in text for marker in ("login", "cookie", "scan", "登录", "扫码")):
+                raise
+            last_error = exc
+            logger.warning("Friend refresh route=%s failed; trying next route: %s", network_mode, exc)
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Friend refresh route=%s failed; trying next route: %s", network_mode, exc)
+    raise RuntimeError(f"friend refresh failed after routes {modes}: {last_error}")
