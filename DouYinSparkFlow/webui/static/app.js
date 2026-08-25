@@ -448,7 +448,18 @@
           if (retries > 1 && workspace.state === "active") {
             if (qrStatus) qrStatus.textContent = "浏览器正在生成二维码，继续等待...";
             refreshLoginQr(1400, retries - 1);
+          } else if (qrStatus) {
+            qrStatus.textContent = "登录页面在规定时间内没有生成二维码，请稍后重试。";
           }
+          return;
+        }
+        if (response.status === 409) {
+          if (qrStatus) qrStatus.textContent = "二维码已过期，请点击刷新二维码。";
+          return;
+        }
+        if (response.status === 502) {
+          const data = await response.json().catch(() => ({}));
+          if (qrStatus) qrStatus.textContent = data.error || "无法访问抖音创作者中心，请检查服务器网络出口。";
           return;
         }
         if (!response.ok) throw new Error(String(response.status));

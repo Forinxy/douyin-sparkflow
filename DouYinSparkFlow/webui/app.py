@@ -295,7 +295,17 @@ def call_login_desktop(path: str, *, method: str = "GET", payload: dict | None =
             return json.loads(body) if body.strip() else {}
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"login-desktop API error {exc.code}: {body}") from exc
+        message = body
+        try:
+            payload = json.loads(body)
+            detail = payload.get("detail") if isinstance(payload, dict) else None
+            if isinstance(detail, dict):
+                message = str(detail.get("message") or detail.get("code") or body)
+            elif detail:
+                message = str(detail)
+        except (TypeError, ValueError):
+            pass
+        raise RuntimeError(f"login-desktop API error {exc.code}: {message}") from exc
     except (urllib.error.URLError, TimeoutError) as exc:
         reason = getattr(exc, "reason", exc)
         raise RuntimeError(f"login-desktop unavailable: {reason}") from exc

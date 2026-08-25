@@ -72,9 +72,9 @@ class DeploymentContractTests(unittest.TestCase):
         compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertIn("# Build proxies must never leak", dockerfile)
         self.assertIn("http_proxy=", dockerfile)
-        self.assertGreaterEqual(compose.count("http_proxy: http://proxy:7890"), 4)
-        self.assertGreaterEqual(compose.count("https_proxy: http://proxy:7890"), 4)
-        self.assertGreaterEqual(compose.count("no_proxy:"), 4)
+        self.assertGreaterEqual(compose.count("http_proxy: http://proxy:7890"), 3)
+        self.assertGreaterEqual(compose.count("https_proxy: http://proxy:7890"), 3)
+        self.assertGreaterEqual(compose.count("no_proxy:"), 3)
 
     def test_sensitive_ports_bind_to_loopback_by_default(self):
         text = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
@@ -113,6 +113,20 @@ class DeploymentContractTests(unittest.TestCase):
         dockerignore = (SOURCE_ROOT / ".dockerignore").read_text(encoding="utf-8")
         for entry in ("logs/", "config.json", "usersData.json", "webui_settings.json"):
             self.assertIn(entry, dockerignore)
+
+    def test_login_desktop_uses_direct_first_network_route(self):
+        compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+        env_example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+        server = (SOURCE_ROOT / "login_desktop_server.py").read_text(encoding="utf-8")
+        login_block = compose.split("  login-desktop:", 1)[1].split("  scheduler:", 1)[0]
+        self.assertIn("LOGIN_DESKTOP_PROXY_MODE: ${LOGIN_DESKTOP_PROXY_MODE:-auto}", login_block)
+        self.assertIn("LOGIN_DESKTOP_PROXY: ${LOGIN_DESKTOP_PROXY:-http://proxy:7890}", login_block)
+        self.assertNotIn("HTTP_PROXY: http://proxy:7890", login_block)
+        self.assertIn("LOGIN_DESKTOP_PROXY_MODE=auto", env_example)
+        self.assertIn('candidates.append(("direct", None))', server)
+        self.assertIn('candidates.append(("proxy", LOGIN_PROXY_SERVER))', server)
+        self.assertIn('"--no-proxy-server"', server)
+        self.assertIn('"/preflight"', server)
 
     def test_login_desktop_resource_controls_are_configured(self):
         compose = (REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8")

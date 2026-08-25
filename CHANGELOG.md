@@ -1,3 +1,7 @@
+## 2026-08-25
+
+- Made login-browser networking direct-first with Mihomo fallback and explicit preflight errors.
+
 # Changelog
 
 ## 2026-07-11
