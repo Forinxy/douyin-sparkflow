@@ -85,12 +85,17 @@
 git clone https://github.com/halfwaystudent/douyin-sparkflow.git
 cd douyin-sparkflow
 
-# 2. 配置环境变量
+# 2. 创建本地环境变量
 cp .env.example .env
 nano .env  # 根据需要修改配置
+# 可选：在本地 .env 中填写 PROXY_SUB_URL，不要提交真实订阅地址
 
-# 3. 启动服务
-docker compose up -d
+# 3. 初始化运行时文件并启动服务
+# 会创建 proxy/config.yaml；没有订阅时使用 DIRECT-only 配置
+bash ./deploy/install-local.sh
+
+# Windows PowerShell 使用：
+# powershell -ExecutionPolicy Bypass -File .\deploy\install-local.ps1
 
 # 4. 访问 Web 界面
 # 浏览器打开 http://localhost:8787
@@ -179,7 +184,8 @@ douyin-sparkflow/
 │   └── login_desktop_server.py  # 登录桌面服务
 ├── .github/workflows/       # GitHub Actions 定时任务
 ├── proxy/                    # 代理配置
-│   └── config.yaml           # Mihomo 代理配置
+│   ├── config.example.yaml   # Git 跟踪的安全模板
+│   └── config.yaml           # 本地生成，Git 忽略
 ├── docker-compose.yml        # 容器编排配置
 ├── .env.example              # 环境变量模板
 ├── refresh_proxy.sh          # 代理刷新脚本
@@ -225,13 +231,19 @@ WEB_PORT=8787
 LOGIN_DESKTOP_BIND_ADDRESS=127.0.0.1
 LOGIN_DESKTOP_WEB_PORT=8788
 LOGIN_DESKTOP_PUBLIC_URL=/login-desktop/proxy/vnc.html?autoconnect=1&resize=scale&view_only=0&path=login-desktop/proxy/websockify
+# 登录浏览器默认先直连抖音，直连失败时再尝试 Mihomo
+LOGIN_DESKTOP_PROXY_MODE=auto
+LOGIN_DESKTOP_PROXY=http://proxy:7890
 
 # Mihomo 代理和控制端口默认仅绑定本机
 PROXY_BIND_ADDRESS=127.0.0.1
 PROXY_HTTP_PORT=7890
 PROXY_CONTROLLER_PORT=9090
+# 可选：Mihomo/Clash 订阅地址。通常包含敏感 token，只写入本地 .env。
 PROXY_SUB_URL=
 ```
+
+登录、好友刷新和发送任务默认都采用“直连优先，Mihomo 回退”的网络策略。`LOGIN_DESKTOP_PROXY_MODE=auto` 时，登录浏览器先直连 `creator.douyin.com`，直连预检失败后才使用 `LOGIN_DESKTOP_PROXY`。好友刷新和续火花任务也会在任务开始前选择可用出口；发送动作开始后不会因响应不明确而盲目切换代理重发。没有配置有效订阅时，Mihomo 仅提供 DIRECT-only 配置，回退不会凭空产生代理节点。
 
 #### `config.example.json` 与 `config.json` - 应用配置
 
@@ -288,8 +300,8 @@ PROXY_SUB_URL=
 # 1. 准备环境变量
 cp .env.example .env
 
-# 2. 启动所有服务
-docker compose up -d
+# 2. 初始化 proxy/config.yaml 并启动所有服务
+bash ./deploy/install-local.sh
 
 # 3. 查看日志
 docker compose logs -f
@@ -361,14 +373,16 @@ server {
 
 ### 代理配置
 
-项目支持通过代理访问抖音服务，配置文件位于 `proxy/config.yaml`：
+项目支持通过代理访问抖音服务。仓库提供 `proxy/config.example.yaml` 作为安全模板，部署脚本会在启动前生成本地的 `proxy/config.yaml`：
 
 ```yaml
 mixed-port: 7890
 allow-lan: true
 mode: rule
-# ... 更多配置见配置文件
+# ... 更多配置见 proxy/config.example.yaml
 ```
+
+如果 `PROXY_SUB_URL` 不为空，`refresh_proxy.sh` 会下载订阅并更新本地配置；如果为空，则生成 DIRECT-only 配置。不要在 Git 中提交包含订阅 token 的 `proxy/config.yaml`。首次部署不要跳过初始化步骤直接执行 `docker compose up -d`，否则 Docker 可能把缺失的配置文件创建成目录。
 
 
 ### 默认网络安全

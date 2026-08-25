@@ -1,5 +1,10 @@
 import asyncio
-from core.browser import get_browser
+import logging
+
+from core.browser import douyin_network_modes, get_browser
+
+
+logger = logging.getLogger(__name__)
 
 
 CHAT_PAGE_URL = "https://creator.douyin.com/creator-micro/data/following/chat"
@@ -218,19 +223,15 @@ async def collect_friend_names(page):
             return found_names
 
 
-async def fetch_account_friends(account):
+async def _fetch_account_friends_once(account, network_mode):
     cookies = list(account.get("cookies") or [])
-    if not cookies:
-        raise RuntimeError("账号没有可用 cookies，请重新扫码登录")
-
     playwright = browser = context = page = None
     try:
-        playwright, browser = await get_browser(GUI=False)
+        playwright, browser = await get_browser(GUI=False, network_mode=network_mode)
         context = await browser.new_context()
         context.set_default_navigation_timeout(120000)
         context.set_default_timeout(120000)
         page = await context.new_page()
-
         await context.add_cookies(cookies)
         await page.goto(CHAT_PAGE_URL, wait_until="commit", timeout=30000)
         await asyncio.sleep(1)
@@ -250,3 +251,38 @@ async def fetch_account_friends(account):
             await browser.close()
         if playwright:
             await playwright.stop()
+
+
+async def fetch_account_friends(account):
+    cookies = list(account.get("cookies") or [])
+    if not cookies:
+        raise RuntimeError("account has no cookies; scan login QR code first")
+
+    modes = douyin_network_modes()
+    last_error = None
+    for index, network_mode in enumerate(modes):
+        try:
+            friends = await _fetch_account_friends_once(account, network_mode)
+            logger.info(
+                "Friend refresh route=%s count=%s attempt=%s/%s",
+                network_mode,
+                len(friends),
+                index + 1,
+                len(modes),
+            )
+            if friends or index == len(modes) - 1:
+                return friends
+            logger.warning(
+                "Friend refresh route=%s returned zero friends; trying next route",
+                network_mode,
+            )
+        except RuntimeError as exc:
+            text = str(exc).lower()
+            if any(marker in text for marker in ("login", "cookie", "scan", "登录", "扫码")):
+                raise
+            last_error = exc
+            logger.warning("Friend refresh route=%s failed; trying next route: %s", network_mode, exc)
+        except Exception as exc:
+            last_error = exc
+            logger.warning("Friend refresh route=%s failed; trying next route: %s", network_mode, exc)
+    raise RuntimeError(f"friend refresh failed after routes {modes}: {last_error}")
