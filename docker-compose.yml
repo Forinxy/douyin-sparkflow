@@ -22,12 +22,6 @@ services:
       args:
         PLAYWRIGHT_BASE_IMAGE: ${PLAYWRIGHT_BASE_IMAGE:-swr.cn-north-4.myhuaweicloud.com/ddn-k8s/mcr.microsoft.com/playwright/python:v1.56.0-jammy}
         NODE_RUNTIME_IMAGE: ${NODE_RUNTIME_IMAGE:-node:22-bookworm-slim}
-        HTTP_PROXY: ${HTTP_PROXY_BUILD:-}
-        HTTPS_PROXY: ${HTTPS_PROXY_BUILD:-}
-        ALL_PROXY: ${ALL_PROXY_BUILD:-}
-        http_proxy: ${HTTP_PROXY_BUILD:-}
-        https_proxy: ${HTTPS_PROXY_BUILD:-}
-        all_proxy: ${ALL_PROXY_BUILD:-}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
         PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn}
     image: douyin-sparkflow:local
@@ -69,10 +63,12 @@ services:
       LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS: ${LOGIN_DESKTOP_IDLE_TIMEOUT_SECONDS:-1800}
       LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS: ${LOGIN_DESKTOP_STOP_AFTER_EXPORT_SECONDS:-60}
       LOGIN_DESKTOP_STATUS_CACHE_SECONDS: ${LOGIN_DESKTOP_STATUS_CACHE_SECONDS:-15}
+
       LOGIN_DESKTOP_PROXY_MODE: ${LOGIN_DESKTOP_PROXY_MODE:-direct}
       LOGIN_DESKTOP_PROXY: ${LOGIN_DESKTOP_PROXY:-http://proxy:7890}
       LOGIN_DESKTOP_PREFLIGHT_TIMEOUT_SECONDS: ${LOGIN_DESKTOP_PREFLIGHT_TIMEOUT_SECONDS:-15}
       LOGIN_DESKTOP_NETWORK_CACHE_SECONDS: ${LOGIN_DESKTOP_NETWORK_CACHE_SECONDS:-30}
+
     ports:
       - "${LOGIN_DESKTOP_BIND_ADDRESS:-127.0.0.1}:${LOGIN_DESKTOP_WEB_PORT:-8788}:6080"
     command: bash /app/scripts/start_login_desktop.sh
