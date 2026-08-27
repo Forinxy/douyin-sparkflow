@@ -1,10 +1,15 @@
+# Changelog
+
+## 2026-08-27
+
+- Changed the project license for project-owned code from MIT License to PolyForm Noncommercial License 1.0.0. Future versions are source-available for noncommercial use only; prior versions remain governed by their applicable license terms.
+- Added prominent non-official project, platform-risk, account-authorization, data-responsibility, commercial-use, and intellectual-property notices to the README files.
+
 ## 2026-08-25
 
 - Made the experimental branch default to direct Douyin business traffic; Mihomo is now an explicit advanced option for browser traffic.
 
 - Made login-browser networking direct-first with Mihomo fallback and explicit preflight errors.
-
-# Changelog
 
 ## 2026-07-11
 

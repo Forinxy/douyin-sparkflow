@@ -4,6 +4,8 @@
 
 这是 DouYin SparkFlow 的核心应用源码目录，包含所有业务逻辑、Web 界面和自动化任务实现。
 
+> ⚠️ 本项目为非官方的第三方公开源码项目，与抖音及其关联方不存在隶属、授权、赞助或合作关系。本目录中的自有代码采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，仅授权非商业用途。使用者只能操作本人拥有或已获得明确授权的账号，并须自行遵守适用的平台规则和法律法规。
+
 ---
 
 ## 📁 目录结构
@@ -391,7 +393,9 @@ jinja2>=3.1.0           # 模板引擎
 
 ## 📄 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+本项目自有代码采用 [PolyForm Noncommercial License 1.0.0](../LICENSE)，仅授权非商业用途。未经版权持有人事先书面授权，不得将本项目用于收费服务、商业运营、商业账号管理、营销推广、客户代运营、商业产品集成或其他商业用途。
+
+第三方依赖、图标、字体、图片、截图、商标、平台内容及其他外部素材以各自许可证、授权文件或权利声明为准；Lucide 图标许可证见 [`webui/static/lucide-LICENSE.txt`](webui/static/lucide-LICENSE.txt)。
 
 ---
 
