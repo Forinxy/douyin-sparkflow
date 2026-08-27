@@ -3,6 +3,7 @@ state/
 logs/
 output/
 proxy/config.yaml
+host_password.txt
 *.bak-*
 *.tar.gz
 
