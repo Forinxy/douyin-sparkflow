@@ -9,19 +9,43 @@ logger = logging.getLogger(__name__)
 
 CHAT_PAGE_URL = "https://creator.douyin.com/creator-micro/data/following/chat"
 FRIENDS_TAB_SELECTOR = 'xpath=//*[@id="sub-app"]/div/div/div[1]/div[2]'
-TARGET_SELECTOR = (
-    'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]'
-    '//div[contains(@class, "semi-list-item-body semi-list-item-body-flex-start")]'
+# Douyin's chat page is a virtualized list and its generated wrapper classes and
+# child indexes change frequently.  Keep semantic/current selectors first, with
+# the historical XPath selectors last for older page variants.
+FRIEND_ROW_SELECTORS = (
+    '#sub-app li[role="listitem"]:has([class*="item-header-name-"])',
+    '#sub-app li.semi-list-item:has([class*="item-header-name-"])',
+    'xpath=//*[@id="sub-app"]//div[contains(@class, "semi-list-item-body") and .//*[contains(@class, "item-header-name-")]]',
+    'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]//div[contains(@class, "semi-list-item-body semi-list-item-body-flex-start")]',
 )
-SCROLLABLE_FRIENDS_SELECTOR = (
-    'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]/div/div/div[3]/div/div/div/ul/div'
+SCROLLABLE_FRIENDS_SELECTORS = (
+    '#sub-app [role="grid"]',
+    '#sub-app .ReactVirtualized__Grid',
+    '#sub-app [class*="semi-list"] ul',
+    '#sub-app ul > div',
+    'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]/div/div/div[3]/div/div/div/ul/div',
 )
-NO_MORE_SELECTOR = 'xpath=//div[contains(@class, "no-more-tip-ftdJnu")]'
-LOADING_SELECTOR = 'xpath=//div[contains(@class, "semi-spin")]'
-FIRST_FRIEND_SELECTOR = (
-    'xpath=//*[@id="sub-app"]/div/div/div[2]/div[2]/div/div/div[1]/div/div/div/ul/div/div/div[1]/li/div'
+NO_MORE_SELECTORS = (
+    'xpath=//div[contains(@class, "no-more-tip-ftdJnu")]',
+    'xpath=//*[@id="sub-app"]//*[contains(normalize-space(.), "没有更多")]',
+    'xpath=//*[@id="sub-app"]//*[contains(normalize-space(.), "暂无")]',
 )
-FRIEND_NAME_SELECTOR = """xpath=.//span[contains(@class, "item-header-name-")]"""
+LOADING_SELECTORS = (
+    'xpath=//div[contains(@class, "semi-spin")]',
+    '#sub-app [class*="loading"]',
+    '#sub-app [class*="Loading"]',
+)
+FRIEND_NAME_SELECTORS = (
+    'xpath=.//*[contains(@class, "item-header-name-")]',
+    '[class*="item-header-name-"]',
+)
+# Backward-compatible aliases for callers/tests that imported the old constants.
+TARGET_SELECTOR = FRIEND_ROW_SELECTORS[-1]
+SCROLLABLE_FRIENDS_SELECTOR = SCROLLABLE_FRIENDS_SELECTORS[-1]
+NO_MORE_SELECTOR = NO_MORE_SELECTORS[0]
+LOADING_SELECTOR = LOADING_SELECTORS[0]
+FIRST_FRIEND_SELECTOR = FRIEND_ROW_SELECTORS[0]
+FRIEND_NAME_SELECTOR = FRIEND_NAME_SELECTORS[0]
 LOGIN_MASK_SELECTORS = [".login-mask", ".login-guide-container", ".login-img-code-wrapper"]
 NON_LOGIN_DIALOG_DISMISS_TEXTS = (
     "我知道了",
@@ -41,6 +65,7 @@ NON_LOGIN_DIALOG_CLOSE_SELECTORS = (
 )
 FRIEND_LIST_EMPTY_ROUNDS = 6
 FRIEND_LIST_EMPTY_WAIT_SECONDS = 1.5
+FRIEND_LIST_READY_TIMEOUT_SECONDS = 60
 
 
 def update_collection_progress(new_names_count, no_more_visible, scroll_moved, idle_rounds, stuck_rounds, idle_limit=5, stuck_limit=2):
@@ -86,7 +111,13 @@ async def _dismiss_non_login_dialogs(page):
 
 
 async def _click_friends_tab(page):
-    await page.wait_for_selector("#sub-app", timeout=30000)
+    await page.wait_for_selector("#sub-app", timeout=FRIEND_LIST_READY_TIMEOUT_SECONDS * 1000)
+    try:
+        await page.get_by_role("tab", name="朋友私信", exact=True).click(timeout=5000)
+        return
+    except Exception:
+        pass
+
     try:
         await page.locator(FRIENDS_TAB_SELECTOR).click(timeout=10000)
         return
@@ -119,34 +150,54 @@ async def _friend_list_dom_summary(page):
     )
 
 
-async def _wait_for_first_friend_or_empty(page):
-    for _ in range(FRIEND_LIST_EMPTY_ROUNDS):
-        await _dismiss_non_login_dialogs(page)
-        first_friend = page.locator(FIRST_FRIEND_SELECTOR).first
+async def _first_visible_locator(page, selectors):
+    for selector in selectors:
         try:
-            if await first_friend.count() > 0 and await first_friend.is_visible():
-                await first_friend.click()
-                await asyncio.sleep(2)
-                return True
+            locator = page.locator(selector)
+            count = await locator.count()
+            for index in range(min(count, 5)):
+                item = locator.nth(index)
+                if await item.is_visible(timeout=500):
+                    return selector, locator
         except Exception:
-            pass
+            continue
+    return "", None
+
+
+async def _wait_for_friend_rows_or_empty(page, timeout_seconds=FRIEND_LIST_READY_TIMEOUT_SECONDS):
+    started_at = asyncio.get_running_loop().time()
+    while asyncio.get_running_loop().time() - started_at < timeout_seconds:
+        await _dismiss_non_login_dialogs(page)
+        selector, locator = await _first_visible_locator(page, FRIEND_ROW_SELECTORS)
+        if locator:
+            logger.debug("Friend list ready via selector %s", selector)
+            return selector, locator
 
         summary = await _friend_list_dom_summary(page)
-        has_any_list_content = any(
-            int(summary.get(key) or 0) > 0
-            for key in ("ulCount", "liCount", "listItemCount", "nameSpanCount")
-        )
-        if not has_any_list_content:
+        if int(summary.get("nameSpanCount") or 0) > 0:
+            selector, locator = await _first_visible_locator(page, FRIEND_ROW_SELECTORS)
+            if locator:
+                return selector, locator
+
+        loading_selector, _ = await _first_visible_locator(page, LOADING_SELECTORS)
+        if loading_selector:
             await asyncio.sleep(FRIEND_LIST_EMPTY_WAIT_SECONDS)
             continue
 
-        # The current DOM has list content but not the historical first-friend XPath.
-        # Let the collector below try the more general TARGET_SELECTOR path.
-        return False
-    return False
+        # A genuinely empty friend list is valid; do not turn it into a timeout.
+        text = str(summary.get("text") or "")
+        if any(marker in text for marker in ("暂无", "没有更多")):
+            return "", None
+        await asyncio.sleep(0.5)
+
+    summary = await _friend_list_dom_summary(page)
+    raise RuntimeError(
+        "friend list did not become ready within timeout; "
+        f"dom={summary}"
+    )
 
 
-async def _wait_for_chat_or_login(page, timeout_seconds=30):
+async def _wait_for_chat_or_login(page, timeout_seconds=FRIEND_LIST_READY_TIMEOUT_SECONDS):
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
         await _ensure_logged_in(page)
@@ -162,17 +213,9 @@ async def _wait_for_chat_or_login(page, timeout_seconds=30):
 async def collect_friend_names(page):
     await _wait_for_chat_or_login(page)
     await _click_friends_tab(page)
-    await asyncio.sleep(1)
-
-    has_first_friend = await _wait_for_first_friend_or_empty(page)
-    if not has_first_friend:
-        summary = await _friend_list_dom_summary(page)
-        has_any_list_content = any(
-            int(summary.get(key) or 0) > 0
-            for key in ("ulCount", "liCount", "listItemCount", "nameSpanCount")
-        )
-        if not has_any_list_content:
-            return []
+    _, target_locator = await _wait_for_friend_rows_or_empty(page)
+    if not target_locator:
+        return []
 
     found_names = []
     seen_names = set()
@@ -180,28 +223,64 @@ async def collect_friend_names(page):
     stuck_rounds = 0
 
     while True:
-        target_elements = await page.locator(TARGET_SELECTOR).all()
+        _, target_locator = await _first_visible_locator(page, FRIEND_ROW_SELECTORS)
+        if not target_locator:
+            if found_names:
+                return found_names
+            raise RuntimeError("好友列表已加载但未找到可读取的好友行")
+
+        target_elements = await target_locator.all()
         new_names_count = 0
         for element in target_elements:
-            try:
-                name = (await element.locator(FRIEND_NAME_SELECTOR).inner_text()).strip()
-            except Exception:
-                continue
+            name = ""
+            for selector in FRIEND_NAME_SELECTORS:
+                try:
+                    name = (await element.locator(selector).first.inner_text(timeout=1000)).strip()
+                except Exception:
+                    continue
+                if name:
+                    break
+            if not name:
+                try:
+                    name = (await element.inner_text(timeout=1000)).splitlines()[0].strip()
+                except Exception:
+                    continue
             if not name or name in seen_names:
                 continue
             seen_names.add(name)
             found_names.append(name)
             new_names_count += 1
 
-        no_more = page.locator(NO_MORE_SELECTOR).first
-        if await no_more.count() > 0 and await no_more.is_visible():
+        no_more_selector, _ = await _first_visible_locator(page, NO_MORE_SELECTORS)
+        if no_more_selector:
             return found_names
 
-        loading = page.locator(LOADING_SELECTOR).first
-        if await loading.count() > 0 and await loading.is_visible():
+        loading_selector, _ = await _first_visible_locator(page, LOADING_SELECTORS)
+        if loading_selector:
             await asyncio.sleep(1.5)
 
-        scrollable_element = await page.locator(SCROLLABLE_FRIENDS_SELECTOR).element_handle()
+        scrollable_element = None
+        scrollable_selector = ""
+        for selector in SCROLLABLE_FRIENDS_SELECTORS:
+            try:
+                candidate = page.locator(selector).first
+                handle = await candidate.element_handle()
+                if not handle:
+                    continue
+                metrics = await page.evaluate(
+                    """(element) => ({
+                        clientHeight: element.clientHeight,
+                        scrollHeight: element.scrollHeight,
+                    })""",
+                    handle,
+                )
+                if int(metrics.get("clientHeight") or 0) > 0:
+                    scrollable_element = handle
+                    scrollable_selector = selector
+                    break
+            except Exception:
+                continue
+
         if not scrollable_element:
             if found_names:
                 return found_names
@@ -211,6 +290,13 @@ async def collect_friend_names(page):
         await page.evaluate("(element) => element.scrollTop += 800", scrollable_element)
         await asyncio.sleep(1.5)
         after_top = await page.evaluate("(element) => element.scrollTop", scrollable_element)
+        logger.debug(
+            "Friend list refresh scroll selector=%s before=%s after=%s names=%s",
+            scrollable_selector,
+            before_top,
+            after_top,
+            len(found_names),
+        )
 
         should_stop, idle_rounds, stuck_rounds = update_collection_progress(
             new_names_count=new_names_count,
@@ -233,7 +319,7 @@ async def _fetch_account_friends_once(account, network_mode):
         context.set_default_timeout(120000)
         page = await context.new_page()
         await context.add_cookies(cookies)
-        await page.goto(CHAT_PAGE_URL, wait_until="commit", timeout=30000)
+        await page.goto(CHAT_PAGE_URL, wait_until="commit", timeout=FRIEND_LIST_READY_TIMEOUT_SECONDS * 1000)
         await asyncio.sleep(1)
 
         friends = await collect_friend_names(page)

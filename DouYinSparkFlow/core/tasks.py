@@ -1353,12 +1353,16 @@ async def _first_scrollable_friends_element(page, selectors):
 async def scroll_and_select_user(page, user, account_name, targets, friend_scan_config=None, index_targets=None):
     friends_tab_selector = 'xpath=//*[@id="sub-app"]/div/div/div[1]/div[2]'
     target_selectors = (
+        '#sub-app li[role="listitem"]:has([class*="item-header-name-"])',
+        '#sub-app li.semi-list-item:has([class*="item-header-name-"])',
         'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]'
         '//div[contains(@class, "semi-list-item-body")]',
         'xpath=//*[@id="sub-app"]//div[contains(@class, "semi-list-item-body") and .//span[contains(@class, "item-header-name-")]]',
         'xpath=//*[@id="sub-app"]//li[.//span[contains(@class, "item-header-name-")]]',
     )
     scrollable_friends_selectors = (
+        '#sub-app [role="grid"]',
+        '#sub-app .ReactVirtualized__Grid',
         'xpath=//*[@id="sub-app"]/div/div[1]/div[2]/div[2]/div/div/div[3]/div/div/div/ul/div',
         'xpath=//*[@id="sub-app"]//ul/div',
         'xpath=//*[@id="sub-app"]//div[contains(@class, "semi-list")]//ul/..',
